@@ -1,0 +1,13 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+.env
+.conda
+*.egg-info/
+
+# Data directories (if large or proprietary)
+data/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db

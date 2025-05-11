@@ -1,0 +1,25 @@
+tickers:
+  - SPY
+  - NVDA
+  - AAPL
+  - MSFT
+  - SBUX
+  - AMZN
+  - META
+  - GOOG
+  - AVGO
+  - TSLA
+  - JPM
+  - LLY
+  - V
+  - XOM
+  - COST
+  - MA
+  - UNH
+  - NFLX
+  - WMT
+  - PG
+  - JNJ
+  - BRK-B
+start_date: "1990-01-01"
+interval: "1d"  # valid: 1d, 1wk, 1mo

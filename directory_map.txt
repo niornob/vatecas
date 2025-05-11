@@ -1,0 +1,26 @@
+vatecas/
+├── config
+│   ├── assets.yaml
+│   └── portfolios.yaml
+├── data
+├── src
+│   ├── backtesting
+│   │   ├── __init__.py
+│   │   └── backtester.py
+│   ├── investor
+│   │   ├── __init__.py
+│   │   ├── portfolio.py
+│   │   └── portfolio_registry.py
+│   ├── signal_modules
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   ├── Kalman_CUSUM.py
+│   │   ├── ma_crossover.py
+│   │   └── signal_registry.py
+│   ├── utils
+│   │   ├── __init__.py
+│   │   └── visualizations.py
+│   └── data_loader_tiingo.py
+├── directory_map.txt
+├── map_directory.py
+└── requirements.txt

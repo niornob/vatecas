@@ -1,0 +1,21 @@
+# Core scientific stack
+numpy
+pandas
+scipy
+
+# Data access
+yfinance
+
+# Data formatting
+pyarrow
+
+# Plotting and notebooks
+matplotlib
+seaborn
+jupyter
+
+# Optional: progress bar
+tqdm
+
+# YAML config
+pyyaml

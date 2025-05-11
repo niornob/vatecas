@@ -7,10 +7,12 @@ class MovingAverageCrossover(SignalModule):
     def __init__(
             self, 
             short_window=13,
-            long_window=55
+            mid_window=34,
+            long_window=89
         ):
         super().__init__(name="MovingAverageCrossover")
         self.short_window = short_window
+        self.mid_window = mid_window
         self.long_window = long_window
 
     def generate_signals(
@@ -36,6 +38,9 @@ class MovingAverageCrossover(SignalModule):
             cummean = df[price].expanding(min_periods=1).mean()
             df["SMA_short"] = df["SMA_short"].combine_first(cummean)
 
+            df["SMA_mid"] = df[price].rolling(window=self.mid_window).mean()
+            df["SMA_mid"] = df["SMA_mid"].combine_first(cummean)
+
             df["SMA_long"] = df[price].rolling(window=self.long_window).mean()
             df["SMA_long"] = df["SMA_long"].combine_first(cummean)
 
@@ -45,7 +50,7 @@ class MovingAverageCrossover(SignalModule):
                 signals[ticker] = pd.Series(dtype=float)
                 continue
 
-            score = (df["SMA_short"] - df["SMA_long"]) / df["SMA_long"]
+            score = ((df["SMA_short"] - df["SMA_long"]) / df["SMA_mid"]).clip(-1,1)
             score = 0.5 + 0.5 * score
 
             if show_MAs:

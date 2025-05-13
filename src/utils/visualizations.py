@@ -31,26 +31,19 @@ def _equity_vs_benchmark(
     # Plot each benchmark, normalized
     for ticker in benchmarks:
         df = data[ticker].sort_index().loc[initial_time:]
-        if price not in df.columns:
-            raise ValueError(f"Price column '{price}' not found in data for ticker '{ticker}'.")
-
-        # Find the first common index between equity and benchmark
         common_idx = equity.index.intersection(df.index)
         if common_idx.empty:
-            print(f"Skipping {ticker}: no overlapping time index with equity.")
             continue
 
         t0 = common_idx[0]
         equity_t0 = equity.loc[t0]
         price_t0 = df.loc[t0, price]
-
         if price_t0 == 0:
-            print(f"Skipping {ticker}: price at t0 is zero.")
             continue
 
-        # Normalize benchmark to match equity at t0
-        normalized_price = df[price] * (equity_t0 / price_t0)
-        plt.plot(df.index, normalized_price, label=f'{ticker}', linestyle='--')
+        normalized = df[price] * (equity_t0 / price_t0)
+        normalized = normalized.reindex(common_idx)  # align to equity
+        plt.plot(common_idx, normalized.values, label=ticker, linestyle='--')
 
     plt.xlabel('Date')
     plt.ylabel('Value')

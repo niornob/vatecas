@@ -19,7 +19,7 @@ class MovingAverageCrossover(SignalModule):
             self, 
             data: dict[str, pd.DataFrame], 
             price: str = 'adjClose', 
-            show_MAs: bool = False
+            diagnostics: bool = False
         ) -> dict[str, pd.Series]:
         """
         For each ticker, compute buy confidence as a function of the difference between
@@ -53,7 +53,7 @@ class MovingAverageCrossover(SignalModule):
             score = ((df["SMA_short"] - df["SMA_long"]) / df["SMA_mid"]).clip(-1,1)
             score = 0.5 + 0.5 * score
 
-            if show_MAs:
+            if diagnostics:
                 price_min = df[price].min()
                 price_max = df[price].max()
 

@@ -26,8 +26,9 @@ class SignalModule(ABC):
     @abstractmethod
     def generate_signals(
         self,
-        data: Mapping[str, pd.DataFrame]
-    ) -> Mapping[str, pd.DataFrame]:
+        data: Mapping[str, pd.DataFrame],
+        diagnostics: bool = False
+    ) -> Mapping[str, pd.Series]:
         """
         Generate time-series signals for each ticker in the input data.
 

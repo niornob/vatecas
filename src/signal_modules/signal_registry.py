@@ -2,7 +2,7 @@ from typing import Type
 from .base import SignalModule
 
 from .ma_crossover import MovingAverageCrossover
-from .Kalman_CUSUM import KallmanCUSUM
+from .Kalman import MultiKalmanWithBias
 
 
 # Central registry: name -> SignalModule subclass
@@ -17,7 +17,7 @@ def register_signal(name: str, cls: Type[SignalModule]) -> None:
 
 # Register known signals at import time
 register_signal("ma_crossover", MovingAverageCrossover)
-register_signal("kullman_CUSUM", KallmanCUSUM)
+register_signal("Kalman", MultiKalmanWithBias)
 
 
 class SignalRegistry:

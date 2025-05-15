@@ -14,13 +14,15 @@ vatecas/
 │   ├── signal_modules
 │   │   ├── __init__.py
 │   │   ├── base.py
-│   │   ├── Kalman_CUSUM.py
+│   │   ├── Kalman.py
 │   │   ├── ma_crossover.py
 │   │   └── signal_registry.py
 │   ├── utils
 │   │   ├── __init__.py
 │   │   └── visualizations.py
 │   └── data_loader_tiingo.py
+├── .gitattributes
+├── .gitignore
 ├── directory_map.txt
 ├── map_directory.py
 └── requirements.txt

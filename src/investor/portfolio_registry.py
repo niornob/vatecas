@@ -4,8 +4,6 @@ import yaml
 from typing import Dict
 import pandas as pd
 
-# import the updated Portfolio and sizing models
-#from .portfolio import Portfolio, FixedFractionalSizing, SizingModel
 from .portfolio import Portfolio, FixedFractionalSizing, SizingModel
 
 

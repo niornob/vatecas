@@ -1,19 +1,10 @@
-# portfolio.py
 import pandas as pd
-from dataclasses import dataclass, asdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Mapping, Optional, Type
+from dataclasses import dataclass
+from typing import Mapping, Sequence, Tuple, Dict, List
+from tqdm import tqdm
 import yaml
-from datetime import datetime
 
-@dataclass
-class Order:
-    ticker: str
-    timestamp: pd.Timestamp
-    size: float  # positive for buy, negative for sell
-    price: float
-    slippage: float
-    commission: float
 
 class SizingModel(ABC):
     """
@@ -46,7 +37,6 @@ class FixedFractionalSizing(SizingModel):
         dollar_amount = self.fraction * base * signal
         limit = portfolio.max_position_size
         dollar_amount = min(abs(dollar_amount), limit) * (1 if dollar_amount > 0 else -1)
-        #print(signal, " ", price, " ", base, " ", dollar_amount, " ", self.fraction)
         return dollar_amount / price
 
 
@@ -58,27 +48,69 @@ class Portfolio:
     commission: float = 0.0
     slippage: float = 0.0
     initial_time: pd.Timestamp = pd.Timestamp('2000-01-01T12', tz='UTC')
-    positions: dict[str, float] = None
+
+    # Frequency control parameters:
+    trades_per_period: int = 3             # desired trades per period
+    period_length_days: int = 15            # period in trading days
+    tau_max: float = 1.0                   # threshold immediately after trade
+    tau_min: float = 0.1                   # threshold after full decay
+    """
+    Setting decay to exponential requires setting tau_min to a small nonzero value.
+    """
+    decay: str = 'linear'                  # 'linear' or 'exponential'
+
+    # Internal state:
+    positions: Dict[str, float] = None
+    last_trade_time: Dict[str, pd.Timestamp] = None
+    # time-series records
+    order_history: List[Dict] = None
+    timestamps: List[pd.Timestamp] = None
+    equity_vals: List[float] = None
+    cash_vals: List[float] = None
+    holdings_vals: Dict[str, List[float]] = None
 
     def __post_init__(self):
-        # record initial parameters
         self.initial_cash: float = self.capital
         self.cash: float = self.capital
         self.positions = {} if self.positions is None else self.positions.copy()
         self.pos_value: float = 0.0
-        self.order_history: List[Dict] = []
-        self.timestamps: List[pd.Timestamp] = []
-        self.equity_vals: List[float] = []
-        self.cash_vals: List[float] = []
-        self.holdings_vals: Dict[str, List[float]] = {}
+        self.order_history = []
+        self.timestamps = []
+        self.equity_vals = []
+        self.cash_vals = []
+        self.holdings_vals = {}
+        # initialize last_trade_time far in the past
+        self.last_trade_time = {}
+        self._compute_decay_constant()
+
+    def _compute_decay_constant(self):
+        # average inter-trade interval
+        self.dt_avg = self.period_length_days / max(self.trades_per_period, 1)
+        if self.decay == 'exponential' and self.tau_min > 0:
+            self.lambda_ = -pd.np.log(self.tau_min / self.tau_max) / self.dt_avg
+        else:
+            self.lambda_ = None
+
+
+    def threshold(self, ticker: str, current_time: pd.Timestamp) -> float:
+        # compute days since last trade for this ticker
+        last = self.last_trade_time.get(ticker, self.initial_time)
+        delta = (current_time - last) / pd.Timedelta(days=1)
+        if self.decay == 'linear':
+            frac = min(delta / self.dt_avg, 1.0)
+            return self.tau_max - (self.tau_max - self.tau_min) * frac
+        else:  # exponential
+            return self.tau_min + (self.tau_max - self.tau_min) * pd.np.exp(-self.lambda_ * delta)
 
     def execute_orders(self, signals: Dict[str, float], prices: Dict[str, float], timestamp: pd.Timestamp):
         for ticker, signal in sorted(signals.items(), key=lambda kv: -abs(kv[1])):
+            thr = self.threshold(ticker, timestamp)
+            if abs(signal) < thr:
+                continue
             price = prices.get(ticker)
             if price is None or price <= 0:
                 continue
             size = self.sizing_model.size_position(signal, price, self)
-            #print(ticker, " ", signal, " ", price, " ", size)
             if size == 0:
                 continue
             current = self.positions.get(ticker, 0.0)
@@ -98,8 +130,9 @@ class Portfolio:
             else:
                 proceeds = abs(value) - slippage_cost - commission
                 self.cash += proceeds
-            # update position and history
+            # update position and time-of-last-trade
             self.positions[ticker] = current + size
+            self.last_trade_time[ticker] = timestamp
             self.order_history.append({
                 'ticker': ticker,
                 'timestamp': timestamp.isoformat(),
@@ -108,8 +141,6 @@ class Portfolio:
                 'slippage': slippage_cost,
                 'commission': commission
             })
-
-
 
     def record_state(self, price_map: Dict[str, float], timestamp: pd.Timestamp):
         self.timestamps.append(timestamp)
@@ -187,5 +218,3 @@ class Portfolio:
     def save_config(self, path: str):
         with open(path, 'w') as f:
             yaml.safe_dump(self.to_config(), f)
-
-

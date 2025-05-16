@@ -1,20 +1,22 @@
 """
-    Graphing utilities intended to be used mainly by other modules.
+Graphing utilities intended to be used mainly by other modules.
 """
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
 
 def _equity_vs_benchmark(
     equity: pd.Series,
     data: dict[str, pd.DataFrame],
     benchmarks: list[str],
     initial_time: pd.Timestamp,
-    price: str = 'adjClose',
-    title: str = ''
+    price: str = "adjClose",
+    title: str = "",
 ) -> None:
     """
-    Plots equity curve along with benchmark price series normalized to match equity at the corresponding start time.
+    Plots equity curve along with benchmark price series normalized to match equity
+    at the corresponding start time by converting pandas objects to NumPy arrays.
 
     Parameters:
         equity: Time-indexed series of portfolio equity.
@@ -23,30 +25,41 @@ def _equity_vs_benchmark(
         price: Column name in each DataFrame to use for benchmark price (default: 'adjClose').
     """
     plt.figure(figsize=(12, 6))
-    
-    # Plot equity
+
+    # Ensure we have sorted, time-indexed data
     equity = equity.sort_index()
-    plt.plot(equity.index, equity.values, label='Equity', color='black', linewidth=2)
+
+    # Convert index and values to NumPy arrays for type compatibility
+    x_eq = equity.index.to_numpy()
+    y_eq = equity.to_numpy()
+    plt.plot(x_eq, y_eq, label="Equity", color="black", linewidth=2)
 
     # Plot each benchmark, normalized
     for ticker in benchmarks:
         df = data[ticker].sort_index().loc[initial_time:]
-        common_idx = equity.index.intersection(df.index)
+        other_idx_list = df.index.to_list()
+        common_idx = equity.index.intersection(other_idx_list)
         if common_idx.empty:
             continue
 
+        # pick the first common timestamp
         t0 = common_idx[0]
         equity_t0 = equity.loc[t0]
         price_t0 = df.loc[t0, price]
         if price_t0 == 0:
             continue
 
+        # normalization and re-alignment
         normalized = df[price] * (equity_t0 / price_t0)
-        normalized = normalized.reindex(common_idx)  # align to equity
-        plt.plot(common_idx, normalized.values, label=ticker, linestyle='--')
+        normalized = normalized.reindex(common_idx)
 
-    plt.xlabel('Date')
-    plt.ylabel('Value')
+        # again convert to NumPy arrays
+        x_bm = common_idx.to_numpy()
+        y_bm = normalized.to_numpy()
+        plt.plot(x_bm, y_bm, label=ticker, linestyle="--")
+
+    plt.xlabel("Date")
+    plt.ylabel("Value")
     plt.title(title)
     plt.legend()
     plt.grid(True)
@@ -54,13 +67,12 @@ def _equity_vs_benchmark(
     plt.show()
 
 
-
 def _holdings_over_time(
     equity: pd.Series,
     data: dict[str, pd.DataFrame],
     holdings: dict[str, pd.Series],
     price: str = "adjClose",
-    title: str = ''
+    title: str = "",
 ):
     """
     Plot the percentage of portfolio equity invested in each ticker over time.
@@ -91,15 +103,11 @@ def _holdings_over_time(
     pct = value_df.div(equity, axis=0).fillna(0)
 
     # Plot as stacked area
-    ax = pct.plot.area(
-        figsize=(12, 6),
-        title=title,
-        linewidth=0
-    )
+    ax = pct.plot.area(figsize=(12, 4), title=title, linewidth=0)
     ax.set_ylabel("Fraction of Portfolio")
     ax.set_xlabel("Date")
     ax.set_ylim(0, 1)
-    ax.legend(title="Ticker", loc='upper left', bbox_to_anchor=(1.0, 1.0))
+    ax.legend(title="Ticker", loc="upper left", bbox_to_anchor=(1.0, 1.0))
     plt.tight_layout()
     plt.grid(True)
     plt.show()

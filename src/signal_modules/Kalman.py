@@ -6,6 +6,7 @@ from scipy.special import expit
 from typing import Mapping, Dict
 from .base import SignalModule
 
+
 class MultiKalmanWithBias(SignalModule):
     """
     Multivariate Kalman filter over m stocks with adaptive bias term.
@@ -21,13 +22,17 @@ class MultiKalmanWithBias(SignalModule):
         process_window: int = 20,
         meas_window: int = 5,
         bias_noise: float = 1e-6,
-        version: str = '0.3'
+        version: str = "0.3",
     ):
-        super().__init__(name="MultiKalmanWithBias", version=version, params={
-            'process_window': process_window,
-            'meas_window': meas_window,
-            'bias_noise': bias_noise
-        })
+        super().__init__(
+            name="MultiKalmanWithBias",
+            version=version,
+            params={
+                "process_window": process_window,
+                "meas_window": meas_window,
+                "bias_noise": bias_noise,
+            },
+        )
         self.process_window = process_window
         self.meas_window = meas_window
         self.bias_noise = bias_noise
@@ -39,13 +44,11 @@ class MultiKalmanWithBias(SignalModule):
         self.last_x_hat = None
 
     def generate_signals(
-        self,
-        data: Mapping[str, pd.DataFrame],
-        diagnostics: bool = False
+        self, data: Mapping[str, pd.DataFrame], diagnostics: bool = False
     ) -> Dict[str, pd.Series]:
         # Prepare returns matrix
         tickers = list(data.keys())
-        price_df = pd.DataFrame({t: data[t]['adjClose'] for t in tickers})
+        price_df = pd.DataFrame({t: data[t]["adjClose"] for t in tickers})
         returns = price_df.diff().fillna(0)
         T, m = returns.shape
 
@@ -58,7 +61,7 @@ class MultiKalmanWithBias(SignalModule):
 
         # PCA to estimate loadings H_factors (m x k)
         pca = PCA(n_components=self.k)
-        pca.fit(returns.values[:self.process_window])
+        pca.fit(returns.values[: self.process_window])
         H_factors = pca.components_.T  # m x k
         # augment with bias column
         H_bias = np.ones((m, 1))
@@ -70,27 +73,27 @@ class MultiKalmanWithBias(SignalModule):
 
         # Kalman recursion
         for t in range(T):
-            y_t = returns.iloc[t].to_numpy().reshape(-1,1)
+            y_t = returns.iloc[t].to_numpy().reshape(-1, 1)
             # process covariance Q_t
-            window_p = returns.iloc[max(0, t-self.process_window):t+1].values
+            window_p = returns.iloc[max(0, t - self.process_window) : t + 1].values
             raw_Q = np.cov(window_p, rowvar=False)
             proc_var = (np.trace(raw_Q) / m) if raw_Q.ndim >= 2 else float(raw_Q) / m
             Q_f = np.eye(self.k) * proc_var
             Q_b = np.array([[self.bias_noise]])
-            Q_t = np.block([ [Q_f, np.zeros((self.k,1))], [np.zeros((1,self.k)), Q_b] ])
+            Q_t = np.block([[Q_f, np.zeros((self.k, 1))], [np.zeros((1, self.k)), Q_b]])
             # measurement covariance R_t
-            window_r = returns.iloc[max(0, t-self.meas_window):t+1].values
+            window_r = returns.iloc[max(0, t - self.meas_window) : t + 1].values
             raw_R = np.cov(window_r, rowvar=False)
             R_t = raw_R if raw_R.ndim >= 2 else np.eye(m) * (float(raw_R) / m)
             # prediction
-            prev_x = x_hat[t-1] if t > 0 else np.zeros(self.n_state)
+            prev_x = x_hat[t - 1] if t > 0 else np.zeros(self.n_state)
             x_pred = self.F @ prev_x
             P_pred = self.F @ P @ self.F.T + Q_t
             # update
             S = self.H @ P_pred @ self.H.T + R_t
             K = P_pred @ self.H.T @ np.linalg.inv(S)
-            innovation = y_t - (self.H @ x_pred.reshape(-1,1))
-            x_hat[t] = (x_pred + (K @ innovation).ravel())
+            innovation = y_t - (self.H @ x_pred.reshape(-1, 1))
+            x_hat[t] = x_pred + (K @ innovation).ravel()
             P = (np.eye(self.n_state) - K @ self.H) @ P_pred
 
         self.last_x_hat = x_hat
@@ -112,13 +115,13 @@ class MultiKalmanWithBias(SignalModule):
         cs_rank = pred_df.rank(axis=1, pct=True)
         # Weighted average
         w1, w2, w3 = 1.0, 1.0, 1.0
-        signal_df = (w1*proj_sig + w2*sharpe_sig + w3*cs_rank) / (w1 + w2 + w3)
+        signal_df = (w1 * proj_sig + w2 * sharpe_sig + w3 * cs_rank) / (w1 + w2 + w3)
 
         # Output as pd.Series per ticker
         signals: Dict[str, pd.Series] = {}
         for t in tickers:
             s = signal_df[t].copy()
-            s.name = 'buy_confidence'
+            s.name = "buy_confidence"
             signals[t] = s
 
         if diagnostics:
@@ -126,10 +129,7 @@ class MultiKalmanWithBias(SignalModule):
 
         return signals
 
-    def plot_cumulative_returns(
-        self,
-        data: Mapping[str, pd.DataFrame]
-    ) -> None:
+    def plot_cumulative_returns(self, data: Mapping[str, pd.DataFrame]) -> None:
         """
         Plot cumulative observed returns vs model-predicted returns.
         """
@@ -137,7 +137,7 @@ class MultiKalmanWithBias(SignalModule):
             raise RuntimeError("Call generate_signals() before plotting.")
 
         tickers = list(data.keys())
-        price_df = pd.DataFrame({t: data[t]['adjClose'] for t in tickers})
+        price_df = pd.DataFrame({t: data[t]["adjClose"] for t in tickers})
         returns = price_df.diff().fillna(0)
         cum_obs = returns.cumsum()
 
@@ -148,9 +148,9 @@ class MultiKalmanWithBias(SignalModule):
         cum_pred = pred_df.cumsum()
 
         for t in tickers:
-            plt.figure(figsize=(10,6))
+            plt.figure(figsize=(10, 6))
             plt.plot(cum_obs.index, cum_obs[t], label=f"Obs {t}")
-            plt.plot(cum_pred.index, cum_pred[t], '--', label=f"Pred {t}")
+            plt.plot(cum_pred.index, cum_pred[t], "--", label=f"Pred {t}")
             plt.legend()
             plt.title(f"({t}) Cumulative Observed vs Predicted Returns")
             plt.xlabel("Date")

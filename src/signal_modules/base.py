@@ -18,7 +18,7 @@ class SignalModule(ABC):
         Dictionary of parameters or hyperparameters used by the module.
     """
 
-    def __init__(self, name: str, version: str = '0.0', params: dict[str, object] = {}):
+    def __init__(self, name: str = '', version: str = '0.0', params: dict[str, object] = {}):
         self.name = name
         self.version = version
         self.params = params

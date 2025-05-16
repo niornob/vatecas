@@ -70,7 +70,7 @@ class MultiKalmanWithBias(SignalModule):
 
         # Kalman recursion
         for t in range(T):
-            y_t = returns.iloc[t].values.reshape(-1, 1)
+            y_t = returns.iloc[t].to_numpy().reshape(-1,1)
             # process covariance Q_t
             window_p = returns.iloc[max(0, t-self.process_window):t+1].values
             raw_Q = np.cov(window_p, rowvar=False)
@@ -142,11 +142,9 @@ class MultiKalmanWithBias(SignalModule):
         cum_obs = returns.cumsum()
 
         # predicted returns = H @ x_hat'(t)
-        x_df = pd.DataFrame(self.last_x_hat, index=returns.index)
+        x_df = pd.DataFrame(self.last_x_hat, index=returns.index).to_numpy()
         pred = (self.H @ x_df.T).T
-        # pred is already a DataFrame; just set its columns
-        pred_df = pred.copy()
-        pred_df.columns = tickers
+        pred_df = pd.DataFrame(pred, index=returns.index, columns=tickers)
         cum_pred = pred_df.cumsum()
 
         for t in tickers:

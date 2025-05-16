@@ -52,19 +52,13 @@ class BacktestEngine:
 
         for t in tqdm(self.timeline, desc="Backtesting"):
             # extract and filter signals at t
-            signals: Dict[str, float] = {}
-            for tk, s in net.items():
-                if t in s.index:
-                    sig = s.loc[t]
-                    # apply portfolio threshold logic
-                    if abs(sig) >= self.portfolio.threshold(tk, t):
-                        signals[tk] = sig
+            signals: dict[str, float] = {tk: s.loc[t] for tk, s in net.items()}
             # get open prices
-            prices = {tk: self.aligned[tk]["adjOpen"].loc[t] for tk in signals}
+            prices: dict[str, float] = {tk: self.aligned[tk]["adjOpen"].loc[t] for tk in signals}
             # execute and record trades
             self.portfolio.execute_orders(signals, prices, t)
             # record portfolio state
-            price_map = {tk: self.aligned[tk]["adjClose"].loc[t] for tk in self.data}
+            price_map: dict[str, float] = {tk: self.aligned[tk]["adjClose"].loc[t] for tk in self.data}
             self.portfolio.record_state(price_map, t)
 
         return

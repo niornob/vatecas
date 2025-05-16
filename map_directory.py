@@ -3,13 +3,9 @@ from pathlib import Path
 def build_directory_tree(
     root: Path,
     prefix: str = "",
-    excluded_dirs: set[str] = None,
-    excluded_extensions: set[str] = None
+    excluded_dirs: set[str] = set(),
+    excluded_extensions: set[str] = set()
 ) -> list[str]:
-    if excluded_dirs is None:
-        excluded_dirs = set()
-    if excluded_extensions is None:
-        excluded_extensions = set()
 
     lines = []
     entries = sorted(root.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
@@ -32,7 +28,7 @@ if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent
     output_file = project_root / "directory_map.txt"
 
-    excluded_dirs = {"__pycache__", ".git", "venv", ".idea", ".conda"}
+    excluded_dirs = {"__pycache__", ".git", "venv", ".idea", ".conda", ".vscode"}
     excluded_extensions = {".parquet", ".log", ".tmp", ".ipynb"}  # add more as needed
 
     tree_lines = [project_root.name + "/"]

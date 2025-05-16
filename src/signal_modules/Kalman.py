@@ -72,18 +72,28 @@ class MultiKalmanWithBias(SignalModule):
         P = np.eye(self.n_state)
 
         # Kalman recursion
+        eps = 1e-8
         for t in range(T):
             y_t = returns.iloc[t].to_numpy().reshape(-1, 1)
             # process covariance Q_t
             window_p = returns.iloc[max(0, t - self.process_window) : t + 1].values
-            raw_Q = np.cov(window_p, rowvar=False)
+            #print(window_p)
+            if window_p.shape[0] < 2:
+                raw_Q = np.zeros((m, m))
+            else:
+                # bias=True → ddof=0 → no NaNs for small windows
+                raw_Q = np.cov(window_p, rowvar=False, bias=True)
+
             proc_var = (np.trace(raw_Q) / m) if raw_Q.ndim >= 2 else float(raw_Q) / m
             Q_f = np.eye(self.k) * proc_var
             Q_b = np.array([[self.bias_noise]])
             Q_t = np.block([[Q_f, np.zeros((self.k, 1))], [np.zeros((1, self.k)), Q_b]])
             # measurement covariance R_t
             window_r = returns.iloc[max(0, t - self.meas_window) : t + 1].values
-            raw_R = np.cov(window_r, rowvar=False)
+            if window_r.shape[0] < 2:
+                raw_R = np.eye(m) * eps
+            else:
+                raw_R = np.cov(window_r, rowvar=False, bias=True)
             R_t = raw_R if raw_R.ndim >= 2 else np.eye(m) * (float(raw_R) / m)
             # prediction
             prev_x = x_hat[t - 1] if t > 0 else np.zeros(self.n_state)

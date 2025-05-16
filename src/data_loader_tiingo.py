@@ -4,6 +4,7 @@ from tiingo import TiingoClient
 import os
 from datetime import datetime
 
+
 def load_config(config_path="config/assets.yaml"):
     """
     Loads the configuration from the specified YAML file.
@@ -24,7 +25,7 @@ def load_config(config_path="config/assets.yaml"):
         # Construct the absolute path to the config file
         config_path = os.path.join(root_dir, config_path)
 
-        with open(config_path, 'r') as file:
+        with open(config_path, "r") as file:
             config = yaml.safe_load(file)
         return config
     except FileNotFoundError:
@@ -36,6 +37,7 @@ def load_config(config_path="config/assets.yaml"):
     except Exception as e:
         print(f"Error: An unexpected error occurred while loading the config: {e}")
         return None
+
 
 def download_historical_data(ticker, start_date, end_date, api_key, output_dir="data"):
     """
@@ -51,7 +53,7 @@ def download_historical_data(ticker, start_date, end_date, api_key, output_dir="
     """
 
     # Convert user ticker to Tiingo-compatible format
-    client = TiingoClient({'api_key': api_key})
+    client = TiingoClient({"api_key": api_key})
 
     # Construct output file path
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -65,7 +67,7 @@ def download_historical_data(ticker, start_date, end_date, api_key, output_dir="
         existing_df = pd.read_parquet(file_path)
 
         last_date = existing_df.index.max()
-        effective_start = (last_date + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+        effective_start = (last_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
         if effective_start > end_date:
             print(f"{ticker}: Already up to date.")
@@ -73,18 +75,20 @@ def download_historical_data(ticker, start_date, end_date, api_key, output_dir="
         else:
             print(f"{ticker}: Updating from {effective_start} to {end_date}.")
     else:
-        print(f"{ticker}: No existing file found. Downloading full data from {start_date} to {end_date}.")
+        print(
+            f"{ticker}: No existing file found. Downloading full data from {start_date} to {end_date}."
+        )
         existing_df = None
         effective_start = start_date
 
     # Query Tiingo API
-    df = client.get_dataframe(
-        ticker,
-        startDate=effective_start,
-        endDate=end_date,
-        frequency="daily"
-    )
-    
+    try:
+        df = client.get_dataframe(
+            ticker, startDate=effective_start, endDate=end_date, frequency="daily"
+        )
+    except Exception as e:
+        print(f"{ticker}: Error fetching data from Tiingo: {e}")
+        df = pd.DataFrame()  # Return an empty DataFrame on error
 
     if df.empty:
         print(f"{ticker}: No data returned from Tiingo.")
@@ -95,14 +99,13 @@ def download_historical_data(ticker, start_date, end_date, api_key, output_dir="
     # Merge with existing data if applicable
     if existing_df is not None:
         combined = pd.concat([existing_df, df])
-        combined = combined[~combined.index.duplicated(keep='last')]
+        combined = combined[~combined.index.duplicated(keep="last")]
         combined.sort_index(inplace=True)
     else:
         combined = df
 
     combined.to_parquet(file_path)
     print(f"{ticker}: Data saved to {file_path}")
-
 
 
 def main():
@@ -115,15 +118,17 @@ def main():
         print("Failed to load configuration. Exiting.")
         return
 
-    tickers = config.get('tickers')
-    start_date = config.get('start_date')
+    tickers = config.get("tickers")
+    start_date = config.get("start_date")
     # end_date = config.get('end_date') # No longer read from config
-    interval = config.get('interval') #read interval
+    interval = config.get("interval")  # read interval
 
     #  Load API key from environment variable, for security
     api_key = os.environ.get("TIINGO_API_KEY")
     if not api_key:
-        print("Error: Tiingo API key not found in environment variable 'TIINGO_API_KEY'.")
+        print(
+            "Error: Tiingo API key not found in environment variable 'TIINGO_API_KEY'."
+        )
         print("Please set the environment variable and try again.")
         return
 
@@ -142,10 +147,11 @@ def main():
         return
 
     # Get today's date in YYYY-MM-DD format
-    end_date = datetime.today().strftime('%Y-%m-%d')
+    end_date = datetime.today().strftime("%Y-%m-%d")
 
     for ticker in tickers:
         download_historical_data(ticker, start_date, end_date, api_key)
+
 
 if __name__ == "__main__":
     main()

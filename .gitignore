@@ -3,10 +3,12 @@ __pycache__/
 *.py[cod]
 .env
 .conda
+.vscode
 *.egg-info/
 
 # Data directories (if large or proprietary)
 data/
+src/recommender/portfolio/
 
 # Editor and OS files
 .DS_Store

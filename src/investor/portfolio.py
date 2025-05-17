@@ -178,7 +178,7 @@ class Portfolio:
                 'ticker': tk,
                 'timestamp': timestamp.isoformat(),
                 'size': order['size'],
-                'price': order['slippage'],
+                'price': order['price'],
                 'commission': order['commission']
             })
 

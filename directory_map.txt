@@ -31,4 +31,4 @@ vatecas/
 ├── .gitignore
 ├── directory_map.txt
 ├── map_directory.py
-└── requirements.txt
+└── requirement.txt

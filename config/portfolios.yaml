@@ -1,15 +1,11 @@
 default:
-  capital: 0.0
+  capital: 10000
   commission: 0.0
-  initial_time: '2023-01-01T12:00:00+00:00'
+  initial_time: '2020-01-01T12:00:00+00:00'
   max_position_size: 50000.0
   positions: {
-    "SPY": 3,
-    "NVDA": 2,
-    "AVGO": 1,
-    "TSLA": 1
   }
   sizing_model:
-    fraction: .7
+    fraction: 1
     type: FixedFractionalSizing
   slippage: 0.0

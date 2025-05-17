@@ -53,8 +53,8 @@ class Portfolio:
     initial_time: pd.Timestamp = pd.Timestamp('2000-01-01T12', tz='UTC')
 
     # Frequency control parameters:
-    trades_per_period: int = 3             # desired trades per period
-    period_length_days: int = 15            # period in trading days
+    trades_per_period: int = 1             # desired trades per period
+    period_length_days: int = 5            # period in trading days
     tau_max: float = 1.0                   # threshold immediately after trade
     tau_min: float = 0.1                   # threshold after full decay
     """

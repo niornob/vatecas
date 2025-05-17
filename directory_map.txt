@@ -11,6 +11,12 @@ vatecas/
 │   │   ├── __init__.py
 │   │   ├── portfolio.py
 │   │   └── portfolio_registry.py
+│   ├── recommender
+│   │   ├── portfolio
+│   │   │   ├── portfolio.json
+│   │   │   └── recommendation.json
+│   │   ├── __init__.py
+│   │   └── recomender.py
 │   ├── signal_modules
 │   │   ├── __init__.py
 │   │   ├── base.py

@@ -200,7 +200,7 @@ class Portfolio:
             if size > 0 and total_cost > _cash:
                 size = max(
                     (_cash - commission)
-                    / (price * (1 + self.slippage) + 1e-5),
+                    / (price * (1 + self.slippage) + self._small_number),
                     0,
                 )
                 # re-compute everything with the new size

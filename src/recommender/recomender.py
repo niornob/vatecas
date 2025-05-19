@@ -20,11 +20,17 @@ PORTFOLIO_PATH = BASE_DIR / "portfolio" / "portfolio.json"
 RECOMMENDATION_PATH = BASE_DIR / "portfolio" / "recommendation.json"
 
 # Import platform classes
-from investor.portfolio import Portfolio, FixedFractionalSizing
+from investor.portfolio import (
+    PortfolioManager,
+    FixedFractionalSizing,
+    Signal,
+    Order,
+    Position,
+)
 from signal_modules.signal_registry import SignalRegistry
 
 
-def load_portfolio(path: Path) -> Portfolio:
+def load_portfolio(path: Path) -> tuple[PortfolioManager, list[str]]:
     """
     Read portfolio configuration from JSON and instantiate Portfolio.
     """
@@ -32,32 +38,30 @@ def load_portfolio(path: Path) -> Portfolio:
         cfg = json.load(f)
 
     frac = cfg.get("sizing_fraction", 0.1)
+    initial_time = pd.Timestamp(cfg.get("initial_time", "2000-01-01T12:00:00+00:00"))
+    positions = {
+        tk: Position(ticker=tk, size=sz, last_trade_time=initial_time)
+        for tk, sz in cfg.get("positions", {}).items()
+    }
 
     # Build Portfolio
-    portfolio = Portfolio(
-        capital=cfg.get("cash", 0.0),
-        max_position_size=cfg.get("max_position_size", 0.0),
-        sizing_model=FixedFractionalSizing(fraction=frac),
+    manager = PortfolioManager(
+        initial_capital=cfg.get("cash", 0.0),
+        initial_positions=positions,
+        initial_time=initial_time,
+        max_position_size=float(cfg.get("max_position_size", "inf")),
         commission=cfg.get("commission", 0.0),
         slippage=cfg.get("slippage", 0.0),
-        initial_time=pd.to_datetime(
-            cfg.get("initial_time", "2020-01-01T12:00:00+00:00")
-        ),
-        trades_per_period=cfg.get("trades_per_period", 0),
+        sizing_model=FixedFractionalSizing(fraction=frac),
+        trades_per_period=cfg.get("trades_per_period", 1),
         period_length_days=cfg.get("period_length_days", 5),
         tau_max=cfg.get("tau_max", 1.0),
         tau_min=cfg.get("tau_min", 0.1),
-        universe=cfg.get("universe", []),
     )
 
-    # Restore positions and last_trade_times
-    portfolio.positions = cfg.get("positions", {})
-    raw = cfg.get("last_trade_times", {})
-    portfolio.last_trade_times = {
-        tk: portfolio.initial_time if tk not in raw else pd.to_datetime(raw[tk])
-        for tk in portfolio.positions.keys()
-    }
-    return portfolio
+    universe: list[str] = cfg.get("universe", [])
+
+    return manager, universe
 
 
 def load_data(data_dir: Path, universe: list[str]) -> dict[str, pd.DataFrame]:
@@ -79,11 +83,16 @@ def load_data(data_dir: Path, universe: list[str]) -> dict[str, pd.DataFrame]:
 
 
 def generate_recommendations(
-    portfolio: Portfolio, data: dict[str, pd.DataFrame], current_time: pd.Timestamp
-) -> dict[str, dict]:
+    manager: PortfolioManager,
+    universe: list[str],
+    data: dict[str, pd.DataFrame],
+    current_time: pd.Timestamp,
+) -> dict[str, Order]:
     """
     Generate trade recommendations for each ticker using provided historical DataFrames.
     """
+    data = {tk: df for tk, df in data.items() if tk in universe}
+
     # Prepare price map from the latest adjClose
     price_map = {
         tk: df["adjClose"].iloc[-1]
@@ -97,35 +106,50 @@ def generate_recommendations(
     raw_signals = model.generate_signals(data)  # Mapping[str, pd.Series] per ticker
     raw_signals = {tk: sig.iloc[-1] for tk, sig in raw_signals.items() if not sig.empty}
     confidences = {tk: 2 * sig - 1 for tk, sig in raw_signals.items()}
-    confidences = dict(sorted(confidences.items(), key=lambda kv: (kv[1] >= 0, -kv[1] if kv[1] >= 0 else kv[1])))
+    confidences = dict(
+        sorted(
+            confidences.items(),
+            key=lambda kv: (kv[1] >= 0, -kv[1] if kv[1] >= 0 else kv[1]),
+        )
+    )
+    signals: dict[str, Signal] = {
+        tk: Signal(ticker=tk, value=sig, price=price_map[tk], timestamp=current_time)
+        for tk, sig in confidences.items()
+    }
 
-    recs = portfolio.generate_order(confidences, price_map, current_time)
+    recs = manager.portfolio.order_generator.generate_orders(
+        signals=signals,
+        positions=manager.portfolio.positions,
+        cash=manager.portfolio.cash,
+        current_prices=price_map,
+    )
 
     return recs
 
 
 def main():
     # Load portfolio state
-    portfolio = load_portfolio(PORTFOLIO_PATH)
+    manager, universe = load_portfolio(PORTFOLIO_PATH)
 
     # Load market data from Parquet files
-    data = load_data(DATA_DIR, universe=portfolio.universe)
+    data = load_data(DATA_DIR, universe=universe)
 
     timeline = pd.DatetimeIndex(
         pd.to_datetime(sorted(set().union(*[df.index for df in data.values()])))
     )
     aligned = {tk: df.reindex(timeline).ffill() for tk, df in data.items()}
-    timeline = timeline[timeline >= portfolio.initial_time]
-    aligned = {tk: df.loc[portfolio.initial_time :] for tk, df in aligned.items()}
 
     # Execution timestamp (UTC)
     now = pd.Timestamp(datetime.now(timezone.utc))
 
     # Generate recommendations using in-memory data
-    orders = generate_recommendations(portfolio, aligned, now)
+    orders = generate_recommendations(
+        manager=manager, universe=universe, data=aligned, current_time=now
+    )
+
     recs_with_closing_price = {
-        tk: {"size": order['size'], "closing_price": order['price']}
-        for tk, order in orders.items()
+        order.ticker: {"size": order.size, "closing_price": order.price}
+        for order in orders.values()
     }
 
     print(recs_with_closing_price)

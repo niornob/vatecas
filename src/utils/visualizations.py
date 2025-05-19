@@ -1,10 +1,33 @@
 """
 Graphing utilities intended to be used mainly by other modules.
 """
-
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib import cm, rcParams
+from matplotlib.colors import ListedColormap
+from cycler import cycler
 
+"""
+Colormap Name	Number of Colors	        Description
+Accent	                8           Bold colors with high contrast
+Dark2	                8	        Darker hues, good for visibility
+Paired	                12	        Pairs of light/dark complementary colors
+Pastel1	                9	        Soft, pale pastels
+Pastel2	                8	        Slightly stronger pastels
+Set1	                9	        Bright and saturated, not colorblind-safe
+Set2	                8	        Muted but clear
+Set3	                12	        Bright and diverse, useful for many classes
+tab10	                10	        Default Matplotlib color cycle
+tab20	                20	        Extension of tab10 with more variation
+tab20b	                20	        Blues-based variation of tab20
+tab20c	                20	        Cooler/greener variation of tab20
+"""
+cmap = cm.get_cmap('tab20')
+if isinstance(cmap, ListedColormap):
+    colors = cmap.colors  # Now recognized by Pylance
+else:
+    raise TypeError("Expected a ListedColormap with discrete colors.")
+rcParams['axes.prop_cycle'] = cycler(color=colors)
 
 def _equity_vs_benchmark(
     equity: pd.Series,

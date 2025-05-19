@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from investor.portfolio import PortfolioManager
+from investor.deprecated_portfolio import Portfolio
 from signal_modules.base import SignalModule
 
 from utils.visualizations import _equity_vs_benchmark, _holdings_over_time
@@ -16,12 +16,8 @@ class BacktestEngine:
         self,
         data: Mapping[str, pd.DataFrame],
         modules_weights: Sequence[Tuple[SignalModule, float]],
-        manager: PortfolioManager,
+        portfolio: Portfolio,
     ):
-        """
-        create a unified timeline by taking union of timelines from all tickers.
-        align dataframes for all tickers to the unified timeline.
-        """
         self.data = {tk: df.copy() for tk, df in data.items()}
         self.timeline = pd.DatetimeIndex(
             pd.to_datetime(
@@ -31,13 +27,10 @@ class BacktestEngine:
         self.aligned = {
             tk: df.reindex(self.timeline).ffill() for tk, df in self.data.items()
         }
-
-        """
-        precompute signals for the whole timeline.
-        """
-        # unnecessary to compute signals for all of data
-        # trucate to early enough so that at the provided initial_time
-        # there's good signal.
+        self.timeline = self.timeline[self.timeline >= portfolio.initial_time]
+        self.aligned = {
+            tk: df.loc[portfolio.initial_time :] for tk, df in self.aligned.items()
+        }
         if not all(w >= 0 for _, w in modules_weights):
             raise ValueError("Non-sensical weight(s)")
         total_w = sum(w for _, w in modules_weights)
@@ -46,37 +39,27 @@ class BacktestEngine:
             if total_w != 0
             else []
         )
+        self.portfolio = portfolio
+
+    def run(self) -> None:
+        # Precompute weighted signal history
         raw: Dict[str, List[pd.Series]] = {}
         for module, weight in self.modules_weights:
             out = module.generate_signals(self.aligned)
             for tk, series in out.items():
                 raw.setdefault(tk, []).append((2 * series - 1) * weight)
-        self._net: dict[str, pd.Series] = {tk: pd.concat(lst).groupby(level=0).sum() for tk, lst in raw.items()}
+        net = {tk: pd.concat(lst).groupby(level=0).sum() for tk, lst in raw.items()}
 
-        """
-        trucate timeline, aligned data, and precomputed signals
-        according to provided initial_time.
-        """
-        self.timeline = self.timeline[self.timeline >= manager.portfolio.initial_time]
-        self.aligned = {
-            tk: df.loc[manager.portfolio.initial_time :] for tk, df in self.aligned.items()
-        }
-        self._net = {tk: sigs.loc[manager.portfolio.initial_time:] for tk, sigs in self._net.items()}
-        
-        self.manager = manager
-
-    def run(self) -> None:
         for t in tqdm(self.timeline, desc="Backtesting"):
             # extract and filter signals at t
-            signals: dict[str, float] = {tk: s.loc[t] for tk, s in self._net.items()}
+            signals: dict[str, float] = {tk: s.loc[t] for tk, s in net.items()}
             # get open prices
-            opening_prices: dict[str, float] = {tk: self.aligned[tk]["adjOpen"].loc[t] for tk in signals}
+            prices: dict[str, float] = {tk: self.aligned[tk]["adjOpen"].loc[t] for tk in signals}
             # execute and record trades
-            self.manager.process_signals(signals, opening_prices, t)
-            """
-            orders are processed and portfolio snapshots are taken at market open.
-            we may want to allow taking snapshots at market close.
-            """
+            self.portfolio.execute_orders(signals, prices, t)
+            # record portfolio state
+            price_map: dict[str, float] = {tk: self.aligned[tk]["adjClose"].loc[t] for tk in self.data}
+            self.portfolio.record_state(price_map, t)
 
         return
 
@@ -85,19 +68,16 @@ class BacktestEngine:
     """
 
     def equity_vs_benchmarks(self, benchmarks: list[str]):
-        #print(self.aligned)
-        equity = self.manager.get_results()["equity_curve"]
-        print(equity)
         _equity_vs_benchmark(
-            equity=equity,
+            equity=self.portfolio.get_results()["equity_curve"],
             data=self.aligned,
             benchmarks=benchmarks,
-            initial_time=self.manager.portfolio.initial_time,
+            initial_time=self.portfolio.initial_time,
             title="Equity vs. (normalized) Benchmarks",
         )
 
     def holdings_over_time(self):
-        portfolio = self.manager.get_results()
+        portfolio = self.portfolio.get_results()
         _holdings_over_time(
             equity=portfolio["equity_curve"],
             data=self.aligned,

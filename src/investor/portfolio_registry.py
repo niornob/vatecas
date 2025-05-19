@@ -3,12 +3,9 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from .portfolio import (
-    PortfolioManager,
-    FixedFractionalSizing,
-    SizingModel,
-    Position,
-)
+from .portfolio_manager import PortfolioManager
+from ._sizing import FixedFractionalSizing, SizingModel
+from .atomic_types import Position
 
 
 class PortfolioRegistry:

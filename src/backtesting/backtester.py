@@ -1,11 +1,8 @@
-from dataclasses import dataclass
 from typing import Mapping, Sequence, Tuple, Dict, List
 import pandas as pd
-import numpy as np
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
-from investor.portfolio import PortfolioManager
+from investor.portfolio_manager import PortfolioManager
 from signal_modules.base import SignalModule
 
 from utils.visualizations import _equity_vs_benchmark, _holdings_over_time
@@ -56,9 +53,16 @@ class BacktestEngine:
         self.manager = manager
 
     def run(self) -> None:
+        """
+        L is the maximum number of past days, from which historica data is used to make
+        signals at preset time. its minimum value depends on the type of signal generator.
+        for Kalman
+        L >= max(minimum num of assets in the universe, process_window (20 by default))
+        """
+        L = pd.Timedelta(days=50)
         for t in tqdm(self.timeline, desc="Backtesting"):
             raw: Dict[str, List[pd.Series]] = {}
-            truncated_data = {tk: df.loc[:t] for tk, df in self.aligned.items()}
+            truncated_data = {tk: df.loc[t - L:t] for tk, df in self.aligned.items()}
             for module, weight in self.modules_weights:
                 out = module.generate_signals(truncated_data)
                 for tk, series in out.items():

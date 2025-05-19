@@ -60,9 +60,22 @@ class MultiKalmanWithBias(SignalModule):
         self.F = np.eye(self.n_state)
 
         # PCA to estimate loadings H_factors (m x k)
-        pca = PCA(n_components=self.k)
-        pca.fit(returns.values[: self.process_window])
-        H_factors = pca.components_.T  # m x k
+        window0 = returns.values[: self.process_window]
+        n_samples = window0.shape[0]
+        n_comp = min(self.k, n_samples)
+        if n_comp <= 0:
+            # fallback: no factors
+            H_factors = np.zeros((m, self.k))
+        else:
+            pca = PCA(n_components=n_comp)
+            pca.fit(window0)
+            Hf = pca.components_.T              # (m, n_comp)
+            # pad to (m, k) if needed
+            if n_comp < self.k:
+                pad = np.zeros((m, self.k - n_comp))
+                H_factors = np.hstack([Hf, pad])
+            else:
+                H_factors = Hf
         # augment with bias column
         H_bias = np.ones((m, 1))
         self.H = np.hstack([H_factors, H_bias])  # m x (k+1)

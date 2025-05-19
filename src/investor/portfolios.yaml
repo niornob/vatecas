@@ -4,6 +4,8 @@ default:
   initial_time: '2020-01-01T12:00:00+00:00'
   max_position_size: 'inf'
   positions: {
+    "SPY": 5,
+    "GOOGL": 4
   }
   sizing_model:
     fraction: 1

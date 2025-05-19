@@ -32,9 +32,7 @@ class BacktestEngine:
             tk: df.reindex(self.timeline).ffill() for tk, df in self.data.items()
         }
 
-        """
-        precompute signals for the whole timeline.
-        """
+        
         # unnecessary to compute signals for all of data
         # trucate to early enough so that at the provided initial_time
         # there's good signal.
@@ -46,13 +44,6 @@ class BacktestEngine:
             if total_w != 0
             else []
         )
-        raw: Dict[str, List[pd.Series]] = {}
-        for module, weight in self.modules_weights:
-            out = module.generate_signals(self.aligned)
-            for tk, series in out.items():
-                raw.setdefault(tk, []).append((2 * series - 1) * weight)
-        self._net: dict[str, pd.Series] = {tk: pd.concat(lst).groupby(level=0).sum() for tk, lst in raw.items()}
-
         """
         trucate timeline, aligned data, and precomputed signals
         according to provided initial_time.
@@ -61,14 +52,21 @@ class BacktestEngine:
         self.aligned = {
             tk: df.loc[manager.portfolio.initial_time :] for tk, df in self.aligned.items()
         }
-        self._net = {tk: sigs.loc[manager.portfolio.initial_time:] for tk, sigs in self._net.items()}
         
         self.manager = manager
 
     def run(self) -> None:
         for t in tqdm(self.timeline, desc="Backtesting"):
+            raw: Dict[str, List[pd.Series]] = {}
+            truncated_data = {tk: df.loc[:t] for tk, df in self.aligned.items()}
+            for module, weight in self.modules_weights:
+                out = module.generate_signals(truncated_data)
+                for tk, series in out.items():
+                    raw.setdefault(tk, []).append((2 * series - 1) * weight)
+            net: dict[str, pd.Series] = {tk: pd.concat(lst).groupby(level=0).sum() for tk, lst in raw.items()}
+
             # extract and filter signals at t
-            signals: dict[str, float] = {tk: s.loc[t] for tk, s in self._net.items()}
+            signals: dict[str, float] = {tk: s.loc[t] for tk, s in net.items()}
             # get open prices
             opening_prices: dict[str, float] = {tk: self.aligned[tk]["adjOpen"].loc[t] for tk in signals}
             # execute and record trades

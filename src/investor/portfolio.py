@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from math import floor
 from typing import (
     Dict,
     List,
@@ -158,7 +159,7 @@ class FixedFractionalSizing:
             1 if dollar_amount > 0 else -1
         )
 
-        return dollar_amount / price  # Assuming fractional shares are allowed
+        return round(dollar_amount / price)  # Assuming fractional shares are allowed
 
 
 # ========================
@@ -401,8 +402,8 @@ class OrderGenerator:
             if size > 0 and order.total_cost > available_cash:
                 # Recalculate size to match available cash
                 adjusted_size = max(
-                    (available_cash - self.commission)
-                    / (price * (1 + self.slippage) + 1e-5),
+                    floor((available_cash - self.commission)
+                    / (price * (1 + self.slippage) + 1e-5)),
                     0,
                 )
 

@@ -99,8 +99,7 @@ def generate_recommendations(
     # Instantiate and run signal module
     signal_registry = SignalRegistry()
     model = signal_registry.get("Kalman")()
-    raw_signals = model.generate_signals(data)  # Mapping[str, pd.Series] per ticker
-    raw_signals = {tk: sig.iloc[-1] for tk, sig in raw_signals.items() if not sig.empty}
+    raw_signals: dict[str, float] = model.generate_signals(data)
     confidences = {tk: 2 * sig - 1 for tk, sig in raw_signals.items()}
     confidences = dict(
         sorted(

@@ -43,7 +43,7 @@ class BacktestEngine:
         the minimum value of L depends on the type of signal generator.
         for Kalman L >= max(minimum num of assets in the universe, process_window (20 by default)).
         """
-        self.L = pd.Timedelta(days=100)
+        self.L = pd.Timedelta(days=60)
         self.timeline = self.timeline[self.timeline >= manager.portfolio.initial_time]
         self.aligned = {
             tk: df.loc[manager.portfolio.initial_time - self.L:] for tk, df in self.aligned.items()
@@ -53,7 +53,7 @@ class BacktestEngine:
 
     def run(self) -> None:
         for today in tqdm(self.timeline, desc="Backtesting"):
-            raw: Dict[str, List[pd.Series]] = {}
+            raw: Dict[str, List[float]] = {}
             """
             get rid of future data.
             orders will be generated today,
@@ -63,14 +63,10 @@ class BacktestEngine:
             truncated_data = {tk: df.loc[yesterday - self.L:yesterday] for tk, df in self.aligned.items()}
             for module, weight in self.modules_weights:
                 out = module.generate_signals(truncated_data)
-                for tk, series in out.items():
-                    raw.setdefault(tk, []).append((2 * series - 1) * weight)
-            net: dict[str, pd.Series] = {tk: pd.concat(lst).groupby(level=0).sum() for tk, lst in raw.items()}
+                for tk, sig in out.items():
+                    raw.setdefault(tk, []).append((2 * sig - 1) * weight)
+            signals: dict[str, float] = {tk: sum(lst) for tk, lst in raw.items()}
 
-            # extract and filter the latest signal
-            # which may be from yesterday or earlier,
-            # if yesterday was weekend or a holiday for example.
-            signals: dict[str, float] = {tk: s.iloc[-1] for tk, s in net.items()}
             # get today's opening prices
             opening_prices: dict[str, float] = {tk: self.aligned[tk]["adjOpen"].loc[today] for tk in signals}
             # execute and record trades at today's opening prices

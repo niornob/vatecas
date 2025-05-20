@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from typing import Mapping
 import pandas as pd
 
 
@@ -27,34 +26,22 @@ class SignalModule(ABC):
 
     @abstractmethod
     def generate_signals(
-        self, data: Mapping[str, pd.DataFrame], diagnostics: bool = False
-    ) -> Mapping[str, pd.Series]:
+        self, data: dict[str, pd.DataFrame], diagnostics: bool = False
+    ) -> dict[str, float]:
         """
-        Generate time-series signals for each ticker in the input data.
+        Generate signals for each ticker in the input data.
 
         Parameters
         ----------
         data : Mapping[str, pd.DataFrame]
             Dictionary mapping each ticker symbol to a pandas DataFrame.
             Each DataFrame must be time-indexed and contain the columns:
-            ['Adj Close', 'Close', 'High', 'Low', 'Open', 'Volume'].
+            ['adjClose', 'close', 'high', 'low', 'open', 'volume'].
 
         Returns
         -------
-        signals : Mapping[str, pd.DataFrame]
-            Dictionary mapping each ticker symbol to a pandas DataFrame
-            of signals. Each returned DataFrame must:
-
-            - Have the same index as `data[ticker]`.
-            - Contain one or more float columns in [0.0, 1.0], e.g.
-              'buy_confidence'.
-
-            Example
-            -------
-            >>> signals['AAPL'].head()
-                         buy_confidence
-            2025-01-02          0.132432
-            2025-01-02          0.673241
-            ...
+        signals : Mapping[str, float]
+            Dictionary mapping each ticker symbol to a float between 0
+            and 1. 0 will indicate strong sell and 1 strong buy signal.
         """
         ...  # To be implemented in subclass

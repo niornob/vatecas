@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from .base import SignalModule
 import matplotlib.pyplot as plt
 
@@ -20,16 +21,9 @@ class MovingAverageCrossover(SignalModule):
             data: dict[str, pd.DataFrame], 
             price: str = 'adjClose', 
             diagnostics: bool = False
-        ) -> dict[str, pd.Series]:
-        """
-        For each ticker, compute buy confidence as a function of the difference between
-        short and long simple moving averages. Output is a time-indexed Series with
-        confidence values in [0.0, 1.0].
+        ) -> dict[str, float]:
 
-        Returns:
-            dict[ticker] = pd.Series with index = timestamp, values = buy confidence
-        """
-        signals: dict[str, pd.Series] = {}
+        signals: dict[str, float] = {}
 
         for ticker, df in data.items():
             df = df.copy()
@@ -47,7 +41,7 @@ class MovingAverageCrossover(SignalModule):
             df.dropna(subset=["SMA_short", "SMA_long"], inplace=True)            
 
             if df.empty:
-                signals[ticker] = pd.Series(dtype=float)
+                signals[ticker] = np.nan
                 continue
 
             score = ((df["SMA_short"] - df["SMA_long"]) / df["SMA_mid"]).clip(-1,1)
@@ -87,6 +81,6 @@ class MovingAverageCrossover(SignalModule):
                 plt.tight_layout()
                 plt.show()
 
-            signals[ticker] = score
+            signals[ticker] = score.iloc[-1]
 
         return signals

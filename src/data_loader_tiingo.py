@@ -1,3 +1,17 @@
+"""
+When new data is available:
+===========================
+
+From https://www.tiingo.com/documentation/end-of-day:
+
+Tiingo's End-of-Day prices use a proprietary error checking framework to 
+help clean data feeds and also help catch missing corportate actions 
+(splits, dividends, and exchange listing changes). 
+Most US Equity prices are available at 5:30 PM EST, 
+however exchanges may send corrections until 8 PM EST. 
+As we obtain corrections, we update prices throughout the evening.
+"""
+
 import yaml
 import pandas as pd
 from tiingo import TiingoClient

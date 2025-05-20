@@ -133,7 +133,15 @@ def main():
     timeline = pd.DatetimeIndex(
         pd.to_datetime(sorted(set().union(*[df.index for df in data.values()])))
     )
-    aligned = {tk: df.reindex(timeline).ffill() for tk, df in data.items()}
+
+    """
+        L is the maximum number of past days, from which historica data is used to make
+        signals at preset time. its minimum value depends on the type of signal generator.
+        for Kalman
+        L >= max(minimum num of assets in the universe, process_window (20 by default))
+    """
+    L = 1000
+    aligned = {tk: df.reindex(timeline).ffill()  for tk, df in data.items()}
 
     # Execution timestamp (UTC)
     now = pd.Timestamp(datetime.now(timezone.utc))

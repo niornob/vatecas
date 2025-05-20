@@ -9,8 +9,14 @@ vatecas/
 │   │   └── backtester.py
 │   ├── investor
 │   │   ├── __init__.py
-│   │   ├── portfolio.py
-│   │   └── portfolio_registry.py
+│   │   ├── _frequency_control.py
+│   │   ├── _portfolio.py
+│   │   ├── _portfolio_metrics.py
+│   │   ├── _sizing.py
+│   │   ├── atomic_types.py
+│   │   ├── portfolio_manager.py
+│   │   ├── portfolio_registry.py
+│   │   └── portfolios.yaml
 │   ├── recommender
 │   │   ├── portfolio
 │   │   │   ├── portfolio.json
@@ -30,5 +36,6 @@ vatecas/
 ├── .gitattributes
 ├── .gitignore
 ├── directory_map.txt
+├── environment.yml
 ├── map_directory.py
-└── requirement.txt
+└── requirements.txt

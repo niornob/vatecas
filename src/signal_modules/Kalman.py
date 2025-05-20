@@ -21,7 +21,7 @@ class MultiKalmanWithBias(SignalModule):
         self,
         process_window: int = 20,
         meas_window: int = 5,
-        bias_noise: float = 1e-6,
+        bias_noise: float = 1e-5,
         version: str = "0.3",
     ):
         super().__init__(
@@ -137,7 +137,7 @@ class MultiKalmanWithBias(SignalModule):
         # 3. Cross-sectional rank
         cs_rank = pred_df.rank(axis=1, pct=True)
         # Weighted average
-        w1, w2, w3 = 1.0, 1.0, 1.0
+        w1, w2, w3 = 0.0, 0.0, 1.0
         signal_df = (w1 * proj_sig + w2 * sharpe_sig + w3 * cs_rank) / (w1 + w2 + w3)
 
         # Output as pd.Series per ticker

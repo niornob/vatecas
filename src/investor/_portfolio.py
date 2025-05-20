@@ -70,8 +70,8 @@ class OrderGenerator:
         orders = {}
 
         # Pre-split into buys/sells for O(n) efficiency
-        sells = [(tk, s) for tk, s in signals.items() if s.value < 0]
-        buys = [(tk, s) for tk, s in signals.items() if s.value >= 0]
+        sells: list[tuple[str, Signal]] = [(tk, s) for tk, s in signals.items() if s.value < 0]
+        buys: list[tuple[str, Signal]] = [(tk, s) for tk, s in signals.items() if s.value >= 0]
 
         # Sort sells (strongest first) and buys (strongest first)
         sorted_sells = sorted(sells, key=lambda x: x[1].value)

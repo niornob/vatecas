@@ -29,10 +29,6 @@ class BacktestEngine:
             tk: df.reindex(self.timeline).ffill() for tk, df in self.data.items()
         }
 
-        
-        # unnecessary to compute signals for all of data
-        # trucate to early enough so that at the provided initial_time
-        # there's good signal.
         if not all(w >= 0 for _, w in modules_weights):
             raise ValueError("Non-sensical weight(s)")
         total_w = sum(w for _, w in modules_weights)
@@ -42,43 +38,43 @@ class BacktestEngine:
             else []
         )
         """
-        trucate timeline, aligned data, and precomputed signals
-        according to provided initial_time.
+        timeline starts from initial portfolio time.
+        aligned data keeps L days of extra history.
+        the minimum value of L depends on the type of signal generator.
+        for Kalman L >= max(minimum num of assets in the universe, process_window (20 by default)).
         """
+        self.L = pd.Timedelta(days=100)
         self.timeline = self.timeline[self.timeline >= manager.portfolio.initial_time]
         self.aligned = {
-            tk: df.loc[manager.portfolio.initial_time :] for tk, df in self.aligned.items()
+            tk: df.loc[manager.portfolio.initial_time - self.L:] for tk, df in self.aligned.items()
         }
         
         self.manager = manager
 
     def run(self) -> None:
-        """
-        L is the maximum number of past days, from which historica data is used to make
-        signals at preset time. its minimum value depends on the type of signal generator.
-        for Kalman
-        L >= max(minimum num of assets in the universe, process_window (20 by default))
-        """
-        L = pd.Timedelta(days=50)
-        for t in tqdm(self.timeline, desc="Backtesting"):
+        for today in tqdm(self.timeline, desc="Backtesting"):
             raw: Dict[str, List[pd.Series]] = {}
-            truncated_data = {tk: df.loc[t - L:t] for tk, df in self.aligned.items()}
+            """
+            get rid of future data.
+            orders will be generated today,
+            based on yesterday's closing prices.
+            """
+            yesterday = today - pd.Timedelta(days=1)
+            truncated_data = {tk: df.loc[yesterday - self.L:yesterday] for tk, df in self.aligned.items()}
             for module, weight in self.modules_weights:
                 out = module.generate_signals(truncated_data)
                 for tk, series in out.items():
                     raw.setdefault(tk, []).append((2 * series - 1) * weight)
             net: dict[str, pd.Series] = {tk: pd.concat(lst).groupby(level=0).sum() for tk, lst in raw.items()}
 
-            # extract and filter signals at t
-            signals: dict[str, float] = {tk: s.loc[t] for tk, s in net.items()}
-            # get open prices
-            opening_prices: dict[str, float] = {tk: self.aligned[tk]["adjOpen"].loc[t] for tk in signals}
-            # execute and record trades
-            self.manager.process_signals(signals, opening_prices, t)
-            """
-            orders are processed and portfolio snapshots are taken at market open.
-            we may want to allow taking snapshots at market close.
-            """
+            # extract and filter the latest signal
+            # which may be from yesterday or earlier,
+            # if yesterday was weekend or a holiday for example.
+            signals: dict[str, float] = {tk: s.iloc[-1] for tk, s in net.items()}
+            # get today's opening prices
+            opening_prices: dict[str, float] = {tk: self.aligned[tk]["adjOpen"].loc[today] for tk in signals}
+            # execute and record trades at today's opening prices
+            self.manager.process_signals(signals, opening_prices, today)
 
         return
 
@@ -89,7 +85,6 @@ class BacktestEngine:
     def equity_vs_benchmarks(self, benchmarks: list[str]):
         #print(self.aligned)
         equity = self.manager.get_results()["equity_curve"]
-        print(equity)
         _equity_vs_benchmark(
             equity=equity,
             data=self.aligned,

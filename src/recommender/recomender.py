@@ -87,7 +87,8 @@ def generate_recommendations(
     """
     Generate trade recommendations for each ticker using provided historical DataFrames.
     """
-    data = {tk: df for tk, df in data.items() if tk in universe}
+    len_history = 50
+    data = {tk: df.iloc[-len_history:] for tk, df in data.items() if tk in universe}
 
     # Prepare price map from the latest adjClose
     price_map = {
@@ -98,7 +99,8 @@ def generate_recommendations(
 
     # Instantiate and run signal module
     signal_registry = SignalRegistry()
-    model = signal_registry.get("Kalman")()
+    model = signal_registry.get("Kalman")(params={'process_noise': 1e3})
+
     raw_signals: dict[str, float] = model.generate_signals(data)
     confidences = {tk: 2 * sig - 1 for tk, sig in raw_signals.items()}
     confidences = dict(

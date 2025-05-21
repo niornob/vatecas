@@ -43,7 +43,7 @@ class BacktestEngine:
         the minimum value of L depends on the type of signal generator.
         for Kalman L >= max(minimum num of assets in the universe, process_window (20 by default)).
         """
-        self.L = pd.Timedelta(days=60)
+        self.L = pd.Timedelta(days=50)
         self.timeline = self.timeline[self.timeline >= manager.portfolio.initial_time]
         self.aligned = {
             tk: df.loc[manager.portfolio.initial_time - self.L:] for tk, df in self.aligned.items()

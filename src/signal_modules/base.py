@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 import pandas as pd
 
 
@@ -26,7 +27,7 @@ class SignalModule(ABC):
 
     @abstractmethod
     def generate_signals(
-        self, data: dict[str, pd.DataFrame], diagnostics: bool = False
+        self, data: dict[str, pd.DataFrame]
     ) -> dict[str, float]:
         """
         Generate signals for each ticker in the input data.
@@ -45,3 +46,13 @@ class SignalModule(ABC):
             and 1. 0 will indicate strong sell and 1 strong buy signal.
         """
         ...  # To be implemented in subclass
+
+    @abstractmethod
+    def diagnostics(
+        self,
+        **kwargs
+    ) -> Any:
+        """
+        do diagnostic tests on the signal generator.
+        """
+        ...

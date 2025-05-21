@@ -20,7 +20,7 @@ class OrderGenerator:
     Responsible for generating orders based on trading signals and portfolio constraints.
     """
 
-    STRONG_BUY_THRESHOLD = 1
+    STRONG_BUY_THRESHOLD = .5
 
     def __init__(
         self,
@@ -113,7 +113,7 @@ class OrderGenerator:
 
         total_available = cash + potential_sell_cash
         if total_available < required_strong_cash:
-            print("pre: ", signals)
+            #print("pre: ", signals)
             # Compute dampening parameters
             total_strong = sum(
                 s.value
@@ -136,7 +136,7 @@ class OrderGenerator:
                             falloff=falloff,
                         )
 
-            print("post: ", signals)
+            #print("post: ", signals)
 
         #
         available_cash = cash

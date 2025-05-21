@@ -1,7 +1,6 @@
 from typing import Type
 from .base import SignalModule
 
-from .ma_crossover import MovingAverageCrossover
 from .Kalman import UKFSignalModule
 
 
@@ -16,7 +15,6 @@ def register_signal(name: str, cls: Type[SignalModule]) -> None:
     _SIGNAL_REGISTRY[name] = cls
 
 # Register known signals at import time
-register_signal("ma_crossover", MovingAverageCrossover)
 register_signal("Kalman", UKFSignalModule)
 
 

@@ -35,8 +35,17 @@ def load_portfolio(path: Path) -> tuple[PortfolioManager, list[str]]:
 
     frac = cfg.get("sizing_fraction", 0.1)
     initial_time = pd.Timestamp(cfg.get("initial_time", "2000-01-01T12:00:00+00:00"))
+    last_trade_times = cfg.get("last_trade_times")
     positions = {
-        tk: Position(ticker=tk, size=sz, last_trade_time=initial_time)
+        tk: Position(
+            ticker=tk,
+            size=sz,
+            last_trade_time=(
+                pd.Timestamp(last_trade_times[tk])
+                if tk in last_trade_times
+                else initial_time
+            ),
+        )
         for tk, sz in cfg.get("positions", {}).items()
     }
 
@@ -56,6 +65,11 @@ def load_portfolio(path: Path) -> tuple[PortfolioManager, list[str]]:
     )
 
     universe: list[str] = cfg.get("universe", [])
+
+    print("cash: ", manager.portfolio.cash)
+    for pos in manager.portfolio.positions.values():
+        print(pos.ticker, ":", pos.size, " (", pos.last_trade_time, ")")
+    print("====================================")
 
     return manager, universe
 
@@ -98,8 +112,17 @@ def generate_recommendations(
     }
 
     # Instantiate and run signal module
+    """
+    completely empirically, low process_noise and high observation_noise_scale
+    produces high gain. so keep it as it is until an explanation is found.
+    """
     signal_registry = SignalRegistry()
-    model = signal_registry.get("Kalman")(params={'process_noise': 1e3})
+    model = signal_registry.get("Kalman")(
+        params={
+            "process_noise": 1e-3,
+            "observation_noise_scale": 1e+3,
+        }
+    )
 
     raw_signals: dict[str, float] = model.generate_signals(data)
     confidences = {tk: 2 * sig - 1 for tk, sig in raw_signals.items()}
@@ -142,7 +165,7 @@ def main():
         L >= max(minimum num of assets in the universe, process_window (20 by default))
     """
     L = 1000
-    aligned = {tk: df.reindex(timeline).ffill()  for tk, df in data.items()}
+    aligned = {tk: df.reindex(timeline).ffill() for tk, df in data.items()}
 
     # Execution timestamp (UTC)
     now = pd.Timestamp(datetime.now(timezone.utc))
@@ -157,7 +180,7 @@ def main():
         for order in orders.values()
     }
 
-    print(recs_with_closing_price)
+    print("Recommendations:", recs_with_closing_price)
 
     # Write recommendation.json
     out = {"timestamp": now.isoformat(), "signals": recs_with_closing_price}

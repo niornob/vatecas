@@ -20,9 +20,10 @@ class UKFSignalModule(SignalModule):
         version: str = "0.2",
         params: Dict[str, Any] = {},
     ):
-        print("model loaded from: ", os.path.abspath(__file__))
+        print(name, "model loaded from:", os.path.abspath(__file__))
         super().__init__(name=name, version=version, params=params)
         self.last_prediction: pd.Series = pd.Series()
+        self.window = params.get('window', 50)
 
     def _create_and_apply_filter(
         self,
@@ -84,8 +85,9 @@ class UKFSignalModule(SignalModule):
                 ukf.predict();
                 ukf.update(z)
 
+        # Main filtering loop
         main_data = values[warmup_period:] if warmup_period > 0 else values
-        for z in main_data:
+        for idx, z in enumerate(main_data, start=1):
             try:
                 ukf.predict()
             except np.linalg.LinAlgError:
@@ -97,13 +99,15 @@ class UKFSignalModule(SignalModule):
                 ukf.P += np.eye(m) * 1e-6
                 ukf.update(z)
 
+        # Final prediction for next time step
         try:
             ukf.predict()
         except np.linalg.LinAlgError:
             ukf.P += np.eye(m) * 1e-6
             ukf.predict()
-        
-        return ukf.x
+
+        # Return the predicted next state as a 1D numpy array
+        return ukf.x.copy()
 
     def generate_signals(
         self,
@@ -115,8 +119,8 @@ class UKFSignalModule(SignalModule):
         values = price_df.values
 
         # parameters
-        proc_noise = cast(float, self.params.get("fast_process_noise", 1e-2))
-        obs_scale = cast(float, self.params.get("fast_observation_noise_scale", 1e3))
+        proc_noise = cast(float, self.params.get("process_noise", 1e-3))
+        obs_scale = cast(float, self.params.get("observation_noise_scale", 1e-2))
         warmup = cast(int, self.params.get("warmup", min(30, max(0, len(values)//3))))
         alpha = cast(float, self.params.get("alpha", 0.1))
         beta = cast(float, self.params.get("beta", 2.0))
@@ -136,13 +140,13 @@ class UKFSignalModule(SignalModule):
 
         return {tickers[i]: float(signals[i]) for i in range(m)}
 
-    def diagnostics(self, data: Mapping[str, pd.DataFrame], window_size: int = 50) -> None:
+    def diagnostics(self, data: Mapping[str, pd.DataFrame]) -> None:
         actual = pd.DataFrame({t: data[t]["adjClose"] for t in data})
         dates = actual.index
         tickers = actual.columns
         preds = pd.DataFrame(index=dates, columns=tickers, dtype=float)
         preds.iloc[0] = actual.iloc[0]
-        window_size = min(window_size, len(actual))
+        window_size = min(self.window, len(actual))
 
         for i in tqdm(range(1, len(dates)), desc="UKF forecasting"):
             history = {t: df.iloc[max(0, i-window_size):i] for t, df in data.items()}

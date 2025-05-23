@@ -26,7 +26,7 @@ class BacktestEngine:
             )
         )
         self.aligned = {
-            tk: df.reindex(self.timeline).ffill() for tk, df in self.data.items()
+            tk: df.reindex(self.timeline).ffill().fillna(0) for tk, df in self.data.items()
         }
 
         if not all(w >= 0 for _, w in modules_weights):
@@ -41,7 +41,6 @@ class BacktestEngine:
         timeline starts from initial portfolio time.
         aligned data keeps L days of extra history.
         the minimum value of L depends on the type of signal generator.
-        for Kalman L >= max(minimum num of assets in the universe, process_window (20 by default)).
         """
         self.L = pd.Timedelta(days=50)
         self.timeline = self.timeline[self.timeline >= manager.portfolio.initial_time]

@@ -4,6 +4,7 @@ from typing import Optional, Tuple, Any, Dict
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import pywt
 
 import sys
 from pathlib import Path
@@ -58,6 +59,9 @@ class FFTFilter(Oracle):
         self.perc = perc
         self.short_period_threshold = short_period_threshold
         self.long_period_threshold = long_period_threshold
+        self.wavelet = self.params.get('wavelet', 'db4')
+        self.level = self.params.get('level', None),
+        self.threshold_method = str(self.params.get('threshold_method', "soft"))
 
 
     def _predict(self, data: Dict[str, pd.Series]) -> np.ndarray:
@@ -120,9 +124,20 @@ class FFTFilter(Oracle):
         This method encapsulates the core FFT prediction logic, making it easier
         to apply consistently across multiple series and handle errors gracefully.
         """
+        coeffs = pywt.wavedec(
+            series, self.wavelet, mode="symmetric", level=None
+        )
+        sigma = (1 / 0.6745) * np.median(np.abs(coeffs[-1]))
+        uthresh = sigma * np.sqrt(2 * np.log(len(series)))
+        denoised_coeffs = [coeffs[0]] + [
+            pywt.threshold(c, value=uthresh, mode=self.threshold_method)
+            for c in coeffs[1:]
+        ]
+        smooth_series = pd.Series(pywt.waverec(denoised_coeffs, self.wavelet, mode="symmetric")).iloc[:len(series)]
+        
         # Compute FFT spectrum and identify significant peaks
         _, _, fft_vals, peaks_idx, peaks_freq, _ = self._compute_fft_spectrum_peaks(
-            np.asarray(series.values)
+            np.asarray(smooth_series.values)
         )
         
         # Apply period-based filtering to focus on relevant frequency components
@@ -135,7 +150,7 @@ class FFTFilter(Oracle):
         
         # Reconstruct time series with one additional point (the prediction)
         reconstructed = self._reconstruct_time_series_from_peaks(
-            fft_vals, idx_masked, len(series) + 1
+            fft_vals, idx_masked, len(smooth_series) + 1
         )
         
         # Return the final point as our prediction
@@ -243,7 +258,7 @@ class FFTFilter(Oracle):
     def _generate_diagnostic_plots(self, actual_df: pd.DataFrame, preds_df: pd.DataFrame, 
                                  dates: pd.Index, variables: pd.Index) -> None:
         """Generate comparison plots for actual vs predicted values."""
-        
+
         for variable in variables:
             plt.figure(figsize=(14, 8))
             
@@ -268,8 +283,8 @@ class FFTFilter(Oracle):
             
             # Plot prediction errors in second subplot
             plt.subplot(2, 1, 2)
-            errors = actual_df[variable].iloc[1:] - preds_df[variable].iloc[1:]
-            plt.plot(dates[1:], errors, 
+            errors = actual_df[variable].reset_index(drop=True) - preds_df[variable]
+            plt.plot(dates, errors, 
                     label="Prediction Error", 
                     linewidth=1, alpha=0.7, color='green')
             plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)

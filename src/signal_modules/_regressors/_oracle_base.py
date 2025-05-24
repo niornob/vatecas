@@ -1,10 +1,19 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, cast
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 import warnings
+from tqdm import tqdm
+from scipy.stats import pearsonr
+
+import sys
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from utils.denoise import wavelet_denoise
 
 
 class Oracle(ABC):
@@ -17,7 +26,7 @@ class Oracle(ABC):
 
     def __init__(
         self,
-        name: str = "",
+        name: str = "generic_oracle_name",
         version: str = "0.0",
         params: Optional[Dict[str, object]] = None,
     ):
@@ -83,13 +92,6 @@ class Oracle(ABC):
         if data_len == 0:
             raise ValueError("Input data series are empty")
 
-        if window < 1:
-            raise ValueError("Window size must be at least 1")
-        if window > data_len:
-            raise ValueError(
-                f"Window size ({window}) cannot exceed data length ({data_len})"
-            )
-
         tickers = list(data_df.columns)
         pred_len = data_len + (1 if extrapolate else 0)
 
@@ -97,6 +99,8 @@ class Oracle(ABC):
         pred = pd.DataFrame(
             np.zeros((pred_len, len(tickers))), columns=tickers, index=range(pred_len)
         )
+        if not extrapolate:
+            pred.index = data_df.index
 
         # Set initial condition (first prediction equals first observation)
         pred.iloc[0] = data_df.iloc[0]
@@ -120,7 +124,213 @@ class Oracle(ABC):
             except Exception as e:
                 raise RuntimeError(f"Prediction failed at step {i}: {e}")
 
-        return {ticker: pred[ticker] for ticker in tickers}
+        return {
+            ticker: wavelet_denoise(
+                pred[ticker], wavelet="db20", level=None, threshold_method="soft"
+            )
+            for ticker in tickers
+        }
+
+    def plot_vs_actual(self, data: dict[str, pd.Series], window: int) -> None:
+        """Generate comparison plots for actual vs predicted values."""
+        actual_df = pd.DataFrame(data)
+        preds_df = pd.DataFrame(self.regress(data, window=window))
+        dates = actual_df.index
+        tickers = actual_df.columns
+        
+        for ticker in tickers:
+            # Create a figure with subplots for comprehensive analysis
+            # Layout: Two full-width plots on top, then two square plots side by side at bottom
+            fig = plt.figure(figsize=(14, 14))
+            gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1], hspace=0.3, wspace=0.3)
+            
+            # Top plot spans both columns - cumulative returns
+            ax1 = fig.add_subplot(gs[0, :])
+            # Middle plot spans both columns - percentage returns over time
+            ax2 = fig.add_subplot(gs[1, :])
+            # Bottom plots are square and side by side
+            ax3 = fig.add_subplot(gs[2, 0])
+            ax4 = fig.add_subplot(gs[2, 1])
+            
+            fig.suptitle(f'Kalman Filter Analysis: {ticker}', fontsize=16, fontweight='bold')
+            
+            # ===== PLOT 1: Original cumulative returns comparison =====
+            # This plot spans the full width at the top, giving us space to see the time series clearly
+            ax1.plot(
+                dates,
+                actual_df[ticker],
+                label=f"Actual {ticker}",
+                linewidth=2,
+                alpha=0.8,
+            )
+            ax1.plot(
+                dates,
+                preds_df[ticker],
+                label="1-Step Kalman Forecast",
+                linestyle="--",
+                linewidth=1.5,
+                alpha=0.7,
+            )
+            ax1.set_title("One-Step-Ahead Forecast vs Actual (Cumulative Returns)", 
+                        fontsize=12, fontweight="bold")
+            ax1.set_xlabel("Time", fontsize=10)
+            ax1.set_ylabel(f"{ticker} Cumulative Return", fontsize=10)
+            ax1.legend(fontsize=10)
+            ax1.grid(True, alpha=0.3)
+            
+            # ===== PLOT 2: Percentage returns over time =====
+            # This plot shows period-to-period changes, making it easy to spot when predictions diverge
+            
+            # Calculate percentage changes from cumulative returns
+            actual_pct_changes = actual_df[ticker].diff().dropna()
+            pred_pct_changes = preds_df[ticker].diff().dropna()
+            
+            # Align the series and get common dates for time series plotting
+            common_index = actual_pct_changes.index.intersection(list(pred_pct_changes.index))
+            actual_aligned = actual_pct_changes.loc[common_index]
+            pred_aligned = pred_pct_changes.loc[common_index]
+            common_dates = common_index
+            
+            # Plot the percentage changes over time
+            ax2.fill_between(
+                common_dates,
+                actual_aligned,
+                label=f"Actual {ticker} % Change",
+                alpha=0.5,
+                color='blue',
+                edgecolor='none'
+            )
+            ax2.fill_between(
+                common_dates,
+                pred_aligned,
+                label="Predicted % Change",
+                alpha=0.5,
+                color='red',
+                edgecolor='none'
+            )
+
+            # Add zero line for reference (helps identify positive vs negative periods)
+            ax2.axhline(y=0, color='black', linestyle='-', alpha=1, linewidth=1.5)
+            
+            # Highlight periods where signs disagree by shading background
+            sign_disagreement = np.sign(actual_aligned) != np.sign(pred_aligned)
+            if sign_disagreement.any():
+                # Create background shading for periods of directional disagreement
+                for i, disagreement in enumerate(sign_disagreement):
+                    if disagreement and i < len(common_dates):
+                        # Shade the area around disagreement periods
+                        ax2.axvspan(common_dates[i], common_dates[i], 
+                                alpha=0.2, color='yellow', linewidth=0)
+            
+            ax2.set_title("Percentage Returns Over Time: Identifying Prediction Alignment", 
+                        fontsize=12, fontweight="bold")
+            ax2.set_xlabel("Time", fontsize=10)
+            ax2.set_ylabel("Percentage Change", fontsize=10)
+            ax2.legend(fontsize=10)
+            ax2.grid(True, alpha=0.3)
+            
+            # ===== PLOT 3: Percentage changes scatter plot =====
+            # This square plot on the bottom left focuses on magnitude accuracy
+            
+            # Create scatter plot
+            ax3.scatter(actual_aligned, pred_aligned, alpha=0.6, s=30)
+            m, b = np.polyfit(actual_aligned, pred_aligned, deg=1)
+            ax3.axhline(y=0, color='black', linestyle='--', alpha=0.5, linewidth=1)
+            ax3.plot(actual_aligned, m*actual_aligned + b, color='blue', label='OLS Fit')
+
+            # Calculate and display correlation
+            if len(actual_aligned) > 1:
+                correlation, p_value = pearsonr(actual_aligned, pred_aligned)
+                ax3.text(0.05, 0.95, f'Correlation: {correlation:.3f}\np-value: {p_value:.3f}', 
+                        transform=ax3.transAxes, fontsize=11, 
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
+                        verticalalignment='top')
+            
+            # Add diagonal reference line (perfect prediction line)
+            min_val = min(cast(float, actual_aligned.min()), cast(float, pred_aligned.min()))
+            max_val = max(cast(float, actual_aligned.max()), cast(float, pred_aligned.max()))
+            ax3.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.5, linewidth=1)
+            
+            ax3.set_title("Percentage Changes: Actual vs Predicted", fontsize=12, fontweight="bold")
+            ax3.set_xlabel(f"Actual {ticker} % Change", fontsize=10)
+            ax3.set_ylabel("Predicted % Change", fontsize=10)
+            ax3.grid(True, alpha=0.3)
+            
+            # ===== PLOT 4: Sign correlation analysis =====
+            # This square plot on the bottom right shows directional accuracy through bubble sizes
+            
+            # Convert percentage changes to signs (-1, 0, 1)
+            actual_signs = np.sign(actual_aligned)
+            pred_signs = np.sign(pred_aligned)
+            
+            # Count occurrences at each of the four possible sign combinations
+            sign_combinations = {}
+            for actual_sign in [-1, 1]:
+                for pred_sign in [-1, 1]:
+                    count = np.sum((actual_signs == actual_sign) & (pred_signs == pred_sign))
+                    sign_combinations[(actual_sign, pred_sign)] = count
+            
+            # Calculate total for percentage calculations
+            total_points = len(actual_signs)
+            
+            # Create the bubble plot
+            # We'll position the bubbles at the four corners of a unit square
+            positions = {(-1, -1): (-0.8, -0.8), (-1, 1): (-0.8, 0.8), 
+                        (1, -1): (0.8, -0.8), (1, 1): (0.8, 0.8)}
+            
+            # Calculate bubble sizes (scale them for visibility)
+            max_count = max(sign_combinations.values()) if sign_combinations.values() else 1
+            
+            for (actual_sign, pred_sign), count in sign_combinations.items():
+                x, y = positions[(actual_sign, pred_sign)]
+                # Scale bubble size: minimum size of 100, maximum proportional to count
+                bubble_size = 100 + (count / max_count) * 800 if max_count > 0 else 100
+                percentage = (count / total_points) * 100 if total_points > 0 else 0
+                
+                # Choose color based on whether signs agree
+                color = 'green' if actual_sign == pred_sign else 'red'
+                
+                ax4.scatter(x, y, s=bubble_size, alpha=0.6, c=color)
+                
+                # Add count and percentage labels
+                ax4.annotate(f'{count}\n({percentage:.1f}%)', 
+                            (x, y), ha='center', va='center', 
+                            fontsize=10, fontweight='bold')
+            
+            # Calculate sign correlation (this is essentially measuring directional accuracy)
+            sign_correlation, sign_p_value = pearsonr(actual_signs, pred_signs) if len(actual_signs) > 1 else (0, 1)
+            
+            # Display sign correlation
+            ax4.text(0.3, 0.6, f'Sign Correlation: {sign_correlation:.3f}\np-value: {sign_p_value:.3f}', 
+                    transform=ax4.transAxes, fontsize=11,
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.8),
+                    verticalalignment='top')
+            
+            # Customize the sign plot
+            ax4.set_xlim(-1.2, 1.2)
+            ax4.set_ylim(-1.2, 1.2)
+            ax4.set_xlabel("Actual Return Sign", fontsize=10)
+            ax4.set_ylabel("Predicted Return Sign", fontsize=10)
+            ax4.set_title("Directional Accuracy Analysis", fontsize=12, fontweight="bold")
+            ax4.grid(True, alpha=0.3)
+            
+            # Add quadrant labels for clarity
+            ax4.text(-0.8, .4, "Predicted ↑\nActual ↓", ha='center', fontsize=9, 
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="pink", alpha=0.7))
+            ax4.text(0.8, .4, "Predicted ↑\nActual ↑", ha='center', fontsize=9,
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="lightgreen", alpha=0.7))
+            ax4.text(-0.8, -.6, "Predicted ↓\nActual ↓", ha='center', fontsize=9,
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="lightgreen", alpha=0.7))
+            ax4.text(0.8, -.6, "Predicted ↓\nActual ↑", ha='center', fontsize=9,
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="pink", alpha=0.7))
+            
+            # Set tick labels to be more meaningful
+            ax4.set_xticks([-1, 1])
+            ax4.set_xticklabels(['Negative', 'Positive'])
+            ax4.set_yticks([-1, 1]) 
+            ax4.set_yticklabels(['Negative', 'Positive'])
+            
+            plt.show()
 
 
 class StackedOracle(Oracle):
@@ -167,20 +377,19 @@ class StackedOracle(Oracle):
         # Initialize state tracking attributes
         self.residuals: List[Dict[str, pd.Series]] = []
         self.approx_residuals: List[Dict[str, pd.Series]] = []
-        self._last_regression_data = None
+        #self._last_regression_data = None
 
-    def regress(
-        self, data: Dict[str, pd.Series], extrapolate: bool = False
-    ) -> Dict[str, pd.Series]:
+    def _predict(
+        self, data: Dict[str, pd.Series]
+    ) -> np.ndarray:
         """
-        Perform stacked regression using all component oracles.
+        Perform prediction by sequentially applying oracles to predict residuals.
 
         Args:
             data: Dictionary mapping ticker symbols to historical price series
-            extrapolate: If True, generate predictions beyond the historical data
 
         Returns:
-            Dictionary mapping ticker symbols to combined predicted series
+            an array containing the predicted next prices for the tickers
         """
         # Input validation
         if not data:
@@ -199,7 +408,7 @@ class StackedOracle(Oracle):
         predictions: List[np.ndarray] = []
 
         # Store reference to input data for diagnostics
-        self._last_regression_data = data.copy()
+        #self._last_regression_data = data.copy()
 
         # Initialize with original data as first residual
         self.residuals.append({tk: s.reset_index(drop=True) for tk, s in data.items()})
@@ -209,19 +418,17 @@ class StackedOracle(Oracle):
             try:
                 # Get predictions from current oracle on current residuals
                 pred = oracle.regress(
-                    self.residuals[-1], window=window, extrapolate=extrapolate
+                    self.residuals[-1], window=window, extrapolate=True
                 )
 
-                # Handle extrapolation predictions separately
-                if extrapolate:
-                    # Extract the extrapolated values for final combination
-                    extrapolated_values = np.array(
-                        [pred[tk].iloc[-1] for tk in tickers]
-                    )
-                    predictions.append(extrapolated_values)
+                # Extract the extrapolated values for final combination
+                extrapolated_values = np.array(
+                    [pred[tk].iloc[-1] for tk in tickers]
+                )
+                predictions.append(extrapolated_values)
 
-                    # Remove extrapolated values for residual calculation
-                    pred = {tk: pred[tk].iloc[:-1] for tk in tickers}
+                # Remove extrapolated values for residual calculation
+                pred = {tk: pred[tk].iloc[:-1] for tk in tickers}
 
                 # Store this oracle's predictions
                 self.approx_residuals.append(pred)
@@ -248,7 +455,10 @@ class StackedOracle(Oracle):
         for ticker in tickers:
             try:
                 # Sum all predictions from individual oracles
-                oracle_contributions = [w * pred[ticker] for w, pred in zip(self.weights, self.approx_residuals)]
+                oracle_contributions = [
+                    w * pred[ticker]
+                    for w, pred in zip(self.weights, self.approx_residuals)
+                ]
                 net_regression[ticker] = np.sum(oracle_contributions, axis=0)
 
                 # Convert back to pandas Series with proper indexing
@@ -258,222 +468,14 @@ class StackedOracle(Oracle):
             except Exception as e:
                 raise RuntimeError(f"Failed to combine predictions for {ticker}: {e}")
 
-        # Add extrapolated predictions if requested
-        if extrapolate and predictions:
-            try:
-                net_prediction = np.sum([w * series for w, series in zip(self.weights, predictions)], axis=0)
-                for ticker, next_val in zip(tickers, net_prediction):
-                    # Extend the series with the extrapolated value
-                    current_length = len(net_regression[ticker])
-                    net_regression[ticker].loc[current_length] = next_val
-            except Exception as e:
-                raise RuntimeError(f"Failed to add extrapolated predictions: {e}")
-
-        return net_regression
-
-    def _predict(self, data: Dict[str, pd.Series]) -> np.ndarray:
-        """
-        Generate single-step predictions using the stacked oracle approach.
-
-        Args:
-            data: Historical data for prediction
-
-        Returns:
-            Array of predictions for each ticker
-        """
-        pred = self.regress(data=data, extrapolate=True)
+        # Add extrapolated predictions
         try:
-            return np.array([series.iloc[-1] for series in pred.values()])
+            net_prediction = np.sum(
+                [w * series for w, series in zip(self.weights, predictions)], axis=0
+            )
         except Exception as e:
-            raise RuntimeError(f"Failed to extract predictions: {e}")
+            raise RuntimeError(f"Failed to add extrapolated predictions: {e}")
 
-    def diagnostics(self, data: Dict[str, pd.Series]) -> None:
-        """
-        Generate comprehensive diagnostic plots and metrics for the stacked oracle.
+        return net_prediction
 
-        This method analyzes how well each oracle in the stack performs and whether
-        the residuals approach white noise (indicating good model fit).
-        
-        Creates a separate 2x2 plot for each ticker showing:
-        - Original vs Predicted values
-        - Residual evolution through oracle stages  
-        - Cumulative oracle contributions
-        - Final residual white noise analysis
-
-        Args:
-            data: Historical data to analyze
-        """
-        # Perform regression to populate internal state
-        predictions = self.regress(data, extrapolate=False)
-
-        if not self.residuals or not self.approx_residuals:
-            raise RuntimeError("No regression data available. Run regress() first.")
-
-        tickers = list(data.keys())
-        
-        # Create separate plot for each ticker with 2x2 grid
-        for ticker_idx, ticker in enumerate(tickers):
-            # Create individual figure for this ticker with 2x2 subplot arrangement
-            fig, axes = plt.subplots(2, 2, figsize=(12, 6))
-            fig.suptitle(f'Diagnostic Analysis for {ticker}', fontsize=16, fontweight='bold')
-            
-            # Generate all four diagnostic plots for current ticker
-            self._plot_ticker_diagnostics(ticker, axes, predictions)
-            
-            # Adjust spacing between subplots for better readability
-            plt.tight_layout()
-            plt.subplots_adjust(top=0.93)  # Make room for the main title
-            plt.show()
-
-        # Print performance metrics after all plots
-        self._print_performance_metrics(data, predictions, tickers)
-
-    def _plot_ticker_diagnostics(
-        self,
-        ticker: str,
-        axes: np.ndarray,
-        predictions: Dict[str, pd.Series],
-    ) -> None:
-        """
-        Generate diagnostic plots for a specific ticker in a 2x2 grid.
-        
-        Args:
-            ticker: The ticker symbol to analyze
-            axes: 2x2 numpy array of matplotlib axes objects
-            predictions: Dictionary mapping tickers to predicted series
-        """
-        if self._last_regression_data is not None:
-            original_data = self._last_regression_data[ticker]
-        else:
-            raise RuntimeError("No regression data available. Run regress() first.")
-        
-        original_idx = original_data.index
-
-        # Plot 1 (Top-left): Original vs Predicted
-        axes[0, 0].plot(original_data, label="Original", alpha=0.8, linewidth=2)
-        axes[0, 0].plot(
-            original_idx, predictions[ticker], label="Predicted", alpha=0.8, linewidth=2
-        )
-        axes[0, 0].set_title("Original vs Predicted", fontweight='bold')
-        axes[0, 0].legend()
-        axes[0, 0].grid(True, alpha=0.3)
-        axes[0, 0].set_xlabel("Time Index")
-        axes[0, 0].set_ylabel("Value")
-
-        # Plot 2 (Top-right): Residual Evolution
-        for i, residual_dict in enumerate(self.residuals[1:], 1):
-            residual_series = residual_dict[ticker]
-            axes[0, 1].plot(
-                original_idx, residual_series, alpha=0.7, label=f"After Oracle {i}", linewidth=1.5
-            )
-        axes[0, 1].set_title("Residual Evolution", fontweight='bold')
-        axes[0, 1].legend()
-        axes[0, 1].grid(True, alpha=0.3)
-        axes[0, 1].set_xlabel("Time Index")
-        axes[0, 1].set_ylabel("Residual Value")
-
-        # Plot 3 (Bottom-left): Oracle Contributions
-        cumulative_pred = pd.Series(
-            np.zeros(len(original_data))
-        )
-        for i, pred_dict in enumerate(self.approx_residuals):
-            oracle_contrib = self.weights[i] * pred_dict[ticker]  # Apply weights for accurate visualization
-            cumulative_pred += oracle_contrib
-            #print(oracle_contrib, "\n", cumulative_pred)
-            axes[1, 0].plot(
-                original_idx, cumulative_pred, alpha=0.8, label=f"Up to Oracle {i+1}", linewidth=1.5
-            )
-        axes[1, 0].set_title("Cumulative Oracle Contributions", fontweight='bold')
-        axes[1, 0].legend()
-        axes[1, 0].grid(True, alpha=0.3)
-        axes[1, 0].set_xlabel("Time Index")
-        axes[1, 0].set_ylabel("Cumulative Prediction")
-
-        # Plot 4 (Bottom-right): Final Residual Analysis (White Noise Test)
-        final_residuals = self.residuals[-1][ticker]
-        
-        # Scatter plot of residuals
-        axes[1, 1].scatter(
-            range(len(final_residuals)), final_residuals, alpha=0.6, s=20
-        )
-        axes[1, 1].axhline(y=0, color="r", linestyle="--", alpha=0.7, linewidth=2)
-        
-        # Add horizontal lines at ±2 standard deviations for reference
-        residual_std = np.std(final_residuals)
-        axes[1, 1].axhline(y=2*residual_std, color="orange", linestyle=":", alpha=0.5, label="±2σ")
-        axes[1, 1].axhline(y=-2*residual_std, color="orange", linestyle=":", alpha=0.5)
-        
-        axes[1, 1].set_title("Final Residuals (White Noise Check)", fontweight='bold')
-        axes[1, 1].legend()
-        axes[1, 1].grid(True, alpha=0.3)
-        axes[1, 1].set_xlabel("Time Index")
-        axes[1, 1].set_ylabel("Final Residual Value")
-
-    def _print_performance_metrics(
-        self,
-        original_data: Dict[str, pd.Series],
-        predictions: Dict[str, pd.Series],
-        tickers: List[str],
-    ) -> None:
-        """Print comprehensive performance metrics."""
-        print("=" * 80)
-        print("STACKED ORACLE PERFORMANCE ANALYSIS")
-        print("=" * 80)
-
-        for ticker in tickers:
-            orig = original_data[ticker].reset_index(drop=True)
-            pred = predictions[ticker].reset_index(drop=True)
-
-            # print(orig, "\n", pred)
-
-            # Calculate metrics
-            mse = np.mean((orig - pred) ** 2)
-            rmse = np.sqrt(mse)
-            mae = np.mean(np.abs(orig - pred))
-
-            # R-squared
-            ss_res = np.sum((orig - pred) ** 2)
-            ss_tot = np.sum((orig.to_numpy() - np.mean(orig)) ** 2)
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-
-            print(f"\n{ticker} Performance Metrics:")
-            print(f"  RMSE: {rmse:.6f}")
-            print(f"  MAE:  {mae:.6f}")
-            print(f"  R²:   {r_squared:.6f}")
-
-            # White noise tests for final residuals
-            final_residuals = self.residuals[-1][ticker]
-            self._analyze_residual_properties(ticker, final_residuals)
-
-    def _analyze_residual_properties(self, ticker: str, residuals: pd.Series) -> None:
-        """Analyze statistical properties of residuals to check for white noise."""
-        # Ljung-Box test for autocorrelation (white noise should have no correlation)
-        try:
-            from statsmodels.stats.diagnostic import acorr_ljungbox
-
-            lb = acorr_ljungbox(
-                residuals, lags=min(40, len(residuals) // 4), return_df=False
-            )
-            lb_pvalue = lb["lb_pvalue"]
-            print(
-                "Ljung-Box Test (<0.05 => autocorr.):", [round(x,3) for x in lb_pvalue]
-            )
-        except ImportError:
-            # Fallback to simple autocorrelation check
-            autocorr = residuals.autocorr(lag=1)
-            autocorr_result = "PASS" if abs(autocorr) < 0.1 else "FAIL"
-            print(f"  Lag-1 Autocorrelation: {autocorr_result} ({autocorr:.3f})")
-
-            # Normality test
-        try:
-            _, shapiro_p = stats.shapiro(residuals)
-            normality_result = "PASS" if shapiro_p > 0.05 else "FAIL"
-            print(f"  Shapiro-Wilk (Normality): {normality_result} (p-value: {shapiro_p:.3f})")
-        except:
-            print(f"  Shapiro-Wilk test failed (sample size issue)")
-
-        # Mean and variance
-        residual_mean = np.mean(residuals)
-        residual_std = np.std(residuals)
-        print(f"  Residual Mean: {residual_mean:.6f}")
-        print(f"  Residual Std:  {residual_std:.6f}")
+    

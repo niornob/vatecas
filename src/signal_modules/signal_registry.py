@@ -1,7 +1,8 @@
 from typing import Type
 from .base import SignalModule
 
-from .Kalman import UKFSignalModule
+from .KalmanNew import UKFSignalModule
+#from .Kalman import UKFSignalModule
 
 
 # Central registry: name -> SignalModule subclass

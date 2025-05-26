@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, List, Tuple, cast
+from typing import Optional, Dict, List, cast
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import stats
-import warnings
-from tqdm import tqdm
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, skew, kurtosis, jarque_bera
+from statsmodels.graphics.tsaplots import plot_acf
+
 
 import sys
 from pathlib import Path
@@ -28,7 +27,7 @@ class Oracle(ABC):
         self,
         name: str = "generic_oracle_name",
         version: str = "0.0",
-        params: Optional[Dict[str, object]] = None,
+        params: Optional[Dict[str, object]] = None
     ):
         """
         Initialize an Oracle instance.
@@ -56,11 +55,8 @@ class Oracle(ABC):
         pass
 
     def regress(
-        self,
-        data: Dict[str, pd.Series],
-        window: int,
-        extrapolate: bool = False,
-    ) -> Dict[str, pd.Series]:
+        self, data: dict[str, pd.Series], window: int, extrapolate: bool = False
+    ) -> dict[str, pd.Series]:
         """
         Perform rolling window regression on time series data.
 
@@ -124,36 +120,49 @@ class Oracle(ABC):
             except Exception as e:
                 raise RuntimeError(f"Prediction failed at step {i}: {e}")
 
-        return {
-            ticker: wavelet_denoise(
-                pred[ticker], wavelet="db20", level=None, threshold_method="soft"
-            )
-            for ticker in tickers
-        }
+        return {ticker: pred[ticker] for ticker in tickers}
 
-    def plot_vs_actual(self, data: dict[str, pd.Series], window: int) -> None:
+    def residuals(
+        self, data: Dict[str, pd.Series], window: int
+    ) -> Dict[str, pd.Series]:
+        predictions = self.regress(data, window=window, extrapolate=False)
+        return {ticker: data[ticker] - predictions[ticker] for ticker in data.keys()}
+
+
+
+
+    def diagnostics(self, data: dict[str, pd.Series], window: int) -> None:
         """Generate comparison plots for actual vs predicted values."""
         actual_df = pd.DataFrame(data)
         preds_df = pd.DataFrame(self.regress(data, window=window))
         dates = actual_df.index
         tickers = actual_df.columns
-        
+
         for ticker in tickers:
             # Create a figure with subplots for comprehensive analysis
             # Layout: Two full-width plots on top, then two square plots side by side at bottom
-            fig = plt.figure(figsize=(14, 14))
-            gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1], hspace=0.3, wspace=0.3)
-            
+            fig = plt.figure(figsize=(14, 16))
+            gs = fig.add_gridspec(
+                4, 2, height_ratios=[1, 0.75, 1, 0.75], hspace=0.3, wspace=0.3
+            )
+
             # Top plot spans both columns - cumulative returns
             ax1 = fig.add_subplot(gs[0, :])
-            # Middle plot spans both columns - percentage returns over time
+            # 2nd plot spans both columns - percentage returns over time
             ax2 = fig.add_subplot(gs[1, :])
-            # Bottom plots are square and side by side
+            # 3rd row are square and side by side
             ax3 = fig.add_subplot(gs[2, 0])
             ax4 = fig.add_subplot(gs[2, 1])
-            
-            fig.suptitle(f'Kalman Filter Analysis: {ticker}', fontsize=16, fontweight='bold')
-            
+            # bottom row contains two plots
+            ax5 = fig.add_subplot(gs[3, 0])
+            ax6 = fig.add_subplot(gs[3, 1])
+
+            fig.suptitle(
+                f"{self.name} Regressor Analysis: {ticker}",
+                fontsize=16,
+                fontweight="bold",
+            )
+
             # ===== PLOT 1: Original cumulative returns comparison =====
             # This plot spans the full width at the top, giving us space to see the time series clearly
             ax1.plot(
@@ -166,52 +175,58 @@ class Oracle(ABC):
             ax1.plot(
                 dates,
                 preds_df[ticker],
-                label="1-Step Kalman Forecast",
-                linestyle="--",
+                label=f"1-Step {self.name} Forecast",
+                color="orange",
+                linestyle="-",
                 linewidth=1.5,
                 alpha=0.7,
             )
-            ax1.set_title("One-Step-Ahead Forecast vs Actual (Cumulative Returns)", 
-                        fontsize=12, fontweight="bold")
+            ax1.set_title(
+                "One-Step-Ahead Forecast vs Actual",
+                fontsize=12,
+                fontweight="bold",
+            )
             ax1.set_xlabel("Time", fontsize=10)
-            ax1.set_ylabel(f"{ticker} Cumulative Return", fontsize=10)
+            ax1.set_ylabel(f"{ticker}", fontsize=10)
             ax1.legend(fontsize=10)
             ax1.grid(True, alpha=0.3)
-            
+
             # ===== PLOT 2: Percentage returns over time =====
             # This plot shows period-to-period changes, making it easy to spot when predictions diverge
-            
+
             # Calculate percentage changes from cumulative returns
             actual_pct_changes = actual_df[ticker].diff().dropna()
             pred_pct_changes = preds_df[ticker].diff().dropna()
-            
+
             # Align the series and get common dates for time series plotting
-            common_index = actual_pct_changes.index.intersection(list(pred_pct_changes.index))
+            common_index = actual_pct_changes.index.intersection(
+                list(pred_pct_changes.index)
+            )
             actual_aligned = actual_pct_changes.loc[common_index]
             pred_aligned = pred_pct_changes.loc[common_index]
             common_dates = common_index
-            
+
             # Plot the percentage changes over time
             ax2.fill_between(
                 common_dates,
                 actual_aligned,
                 label=f"Actual {ticker} % Change",
                 alpha=0.5,
-                color='blue',
-                edgecolor='none'
+                color="blue",
+                edgecolor="none",
             )
             ax2.fill_between(
                 common_dates,
                 pred_aligned,
                 label="Predicted % Change",
                 alpha=0.5,
-                color='red',
-                edgecolor='none'
+                color="darkorange",
+                edgecolor="none",
             )
 
             # Add zero line for reference (helps identify positive vs negative periods)
-            ax2.axhline(y=0, color='black', linestyle='-', alpha=1, linewidth=1.5)
-            
+            ax2.axhline(y=0, color="black", linestyle="-", alpha=1, linewidth=1.5)
+
             # Highlight periods where signs disagree by shading background
             sign_disagreement = np.sign(actual_aligned) != np.sign(pred_aligned)
             if sign_disagreement.any():
@@ -219,117 +234,222 @@ class Oracle(ABC):
                 for i, disagreement in enumerate(sign_disagreement):
                     if disagreement and i < len(common_dates):
                         # Shade the area around disagreement periods
-                        ax2.axvspan(common_dates[i], common_dates[i], 
-                                alpha=0.2, color='yellow', linewidth=0)
-            
-            ax2.set_title("Percentage Returns Over Time: Identifying Prediction Alignment", 
-                        fontsize=12, fontweight="bold")
+                        ax2.axvspan(
+                            common_dates[i],
+                            common_dates[i],
+                            alpha=0.2,
+                            color="yellow",
+                            linewidth=0,
+                        )
+
+            ax2.set_title(
+                "Percentage Returns Over Time: Identifying Prediction Alignment",
+                fontsize=12,
+                fontweight="bold",
+            )
             ax2.set_xlabel("Time", fontsize=10)
             ax2.set_ylabel("Percentage Change", fontsize=10)
             ax2.legend(fontsize=10)
             ax2.grid(True, alpha=0.3)
-            
+
             # ===== PLOT 3: Percentage changes scatter plot =====
             # This square plot on the bottom left focuses on magnitude accuracy
-            
+
             # Create scatter plot
             ax3.scatter(actual_aligned, pred_aligned, alpha=0.6, s=30)
             m, b = np.polyfit(actual_aligned, pred_aligned, deg=1)
-            ax3.axhline(y=0, color='black', linestyle='--', alpha=0.5, linewidth=1)
-            ax3.plot(actual_aligned, m*actual_aligned + b, color='blue', label='OLS Fit')
+            ax3.axhline(y=0, color="black", linestyle="--", alpha=0.5, linewidth=1)
+            ax3.plot(
+                actual_aligned,
+                m * actual_aligned + b,
+                color="mediumblue",
+                label="OLS Fit",
+            )
 
             # Calculate and display correlation
             if len(actual_aligned) > 1:
                 correlation, p_value = pearsonr(actual_aligned, pred_aligned)
-                ax3.text(0.05, 0.95, f'Correlation: {correlation:.3f}\np-value: {p_value:.3f}', 
-                        transform=ax3.transAxes, fontsize=11, 
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
-                        verticalalignment='top')
-            
+                ax3.text(
+                    0.05,
+                    0.95,
+                    f"Correlation: {correlation:.3f}\np-value: {p_value:.3f}",
+                    transform=ax3.transAxes,
+                    fontsize=11,
+                    bbox=dict(
+                        boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8
+                    ),
+                    verticalalignment="top",
+                )
+
             # Add diagonal reference line (perfect prediction line)
-            min_val = min(cast(float, actual_aligned.min()), cast(float, pred_aligned.min()))
-            max_val = max(cast(float, actual_aligned.max()), cast(float, pred_aligned.max()))
-            ax3.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.5, linewidth=1)
-            
-            ax3.set_title("Percentage Changes: Actual vs Predicted", fontsize=12, fontweight="bold")
+            min_val = min(
+                cast(float, actual_aligned.min()), cast(float, pred_aligned.min())
+            )
+            max_val = max(
+                cast(float, actual_aligned.max()), cast(float, pred_aligned.max())
+            )
+            ax3.plot(
+                [min_val, max_val], [min_val, max_val], "r--", alpha=0.5, linewidth=1
+            )
+
+            ax3.set_title(
+                "Percentage Changes: Actual vs Predicted",
+                fontsize=12,
+                fontweight="bold",
+            )
             ax3.set_xlabel(f"Actual {ticker} % Change", fontsize=10)
             ax3.set_ylabel("Predicted % Change", fontsize=10)
             ax3.grid(True, alpha=0.3)
-            
+
             # ===== PLOT 4: Sign correlation analysis =====
             # This square plot on the bottom right shows directional accuracy through bubble sizes
-            
+
             # Convert percentage changes to signs (-1, 0, 1)
             actual_signs = np.sign(actual_aligned)
             pred_signs = np.sign(pred_aligned)
-            
+
             # Count occurrences at each of the four possible sign combinations
             sign_combinations = {}
             for actual_sign in [-1, 1]:
                 for pred_sign in [-1, 1]:
-                    count = np.sum((actual_signs == actual_sign) & (pred_signs == pred_sign))
+                    count = np.sum(
+                        (actual_signs == actual_sign) & (pred_signs == pred_sign)
+                    )
                     sign_combinations[(actual_sign, pred_sign)] = count
-            
+
             # Calculate total for percentage calculations
             total_points = len(actual_signs)
-            
+
             # Create the bubble plot
             # We'll position the bubbles at the four corners of a unit square
-            positions = {(-1, -1): (-0.8, -0.8), (-1, 1): (-0.8, 0.8), 
-                        (1, -1): (0.8, -0.8), (1, 1): (0.8, 0.8)}
-            
+            positions = {
+                (-1, -1): (-0.8, -0.8),
+                (-1, 1): (-0.8, 0.8),
+                (1, -1): (0.8, -0.8),
+                (1, 1): (0.8, 0.8),
+            }
+
             # Calculate bubble sizes (scale them for visibility)
-            max_count = max(sign_combinations.values()) if sign_combinations.values() else 1
-            
+            max_count = (
+                max(sign_combinations.values()) if sign_combinations.values() else 1
+            )
+
             for (actual_sign, pred_sign), count in sign_combinations.items():
                 x, y = positions[(actual_sign, pred_sign)]
                 # Scale bubble size: minimum size of 100, maximum proportional to count
                 bubble_size = 100 + (count / max_count) * 800 if max_count > 0 else 100
                 percentage = (count / total_points) * 100 if total_points > 0 else 0
-                
+
                 # Choose color based on whether signs agree
-                color = 'green' if actual_sign == pred_sign else 'red'
-                
+                color = "green" if actual_sign == pred_sign else "red"
+
                 ax4.scatter(x, y, s=bubble_size, alpha=0.6, c=color)
-                
+
                 # Add count and percentage labels
-                ax4.annotate(f'{count}\n({percentage:.1f}%)', 
-                            (x, y), ha='center', va='center', 
-                            fontsize=10, fontweight='bold')
-            
+                ax4.annotate(
+                    f"{count}\n({percentage:.1f}%)",
+                    (x, y),
+                    ha="center",
+                    va="center",
+                    fontsize=10,
+                    fontweight="bold",
+                )
+
             # Calculate sign correlation (this is essentially measuring directional accuracy)
-            sign_correlation, sign_p_value = pearsonr(actual_signs, pred_signs) if len(actual_signs) > 1 else (0, 1)
-            
+            sign_correlation, sign_p_value = (
+                pearsonr(actual_signs, pred_signs) if len(actual_signs) > 1 else (0, 1)
+            )
+
             # Display sign correlation
-            ax4.text(0.3, 0.6, f'Sign Correlation: {sign_correlation:.3f}\np-value: {sign_p_value:.3f}', 
-                    transform=ax4.transAxes, fontsize=11,
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.8),
-                    verticalalignment='top')
-            
+            ax4.text(
+                0.3,
+                0.6,
+                f"Sign Correlation: {sign_correlation:.3f}\np-value: {sign_p_value:.3f}",
+                transform=ax4.transAxes,
+                fontsize=11,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+                verticalalignment="top",
+            )
+
             # Customize the sign plot
             ax4.set_xlim(-1.2, 1.2)
             ax4.set_ylim(-1.2, 1.2)
             ax4.set_xlabel("Actual Return Sign", fontsize=10)
             ax4.set_ylabel("Predicted Return Sign", fontsize=10)
-            ax4.set_title("Directional Accuracy Analysis", fontsize=12, fontweight="bold")
+            ax4.set_title(
+                "Directional Accuracy Analysis", fontsize=12, fontweight="bold"
+            )
             ax4.grid(True, alpha=0.3)
-            
+
             # Add quadrant labels for clarity
-            ax4.text(-0.8, .4, "Predicted ↑\nActual ↓", ha='center', fontsize=9, 
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="pink", alpha=0.7))
-            ax4.text(0.8, .4, "Predicted ↑\nActual ↑", ha='center', fontsize=9,
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="lightgreen", alpha=0.7))
-            ax4.text(-0.8, -.6, "Predicted ↓\nActual ↓", ha='center', fontsize=9,
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="lightgreen", alpha=0.7))
-            ax4.text(0.8, -.6, "Predicted ↓\nActual ↑", ha='center', fontsize=9,
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="pink", alpha=0.7))
-            
+            ax4.text(
+                -0.8,
+                0.4,
+                "Predicted ↑\nActual ↓",
+                ha="center",
+                fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="pink", alpha=0.7),
+            )
+            ax4.text(
+                0.8,
+                0.4,
+                "Predicted ↑\nActual ↑",
+                ha="center",
+                fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="lightgreen", alpha=0.7),
+            )
+            ax4.text(
+                -0.8,
+                -0.6,
+                "Predicted ↓\nActual ↓",
+                ha="center",
+                fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="lightgreen", alpha=0.7),
+            )
+            ax4.text(
+                0.8,
+                -0.6,
+                "Predicted ↓\nActual ↑",
+                ha="center",
+                fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="pink", alpha=0.7),
+            )
+
             # Set tick labels to be more meaningful
             ax4.set_xticks([-1, 1])
-            ax4.set_xticklabels(['Negative', 'Positive'])
-            ax4.set_yticks([-1, 1]) 
-            ax4.set_yticklabels(['Negative', 'Positive'])
-            
+            ax4.set_xticklabels(["Negative", "Positive"])
+            ax4.set_yticks([-1, 1])
+            ax4.set_yticklabels(["Negative", "Positive"])
+
+            # ===== PLOT 5: Sign correlation analysis =====
+            # This plot spans the full width at the bottom, showing residuals
+            residuals = actual_df[ticker] - preds_df[ticker]
+            rolling = residuals.rolling(window=20, center=False).mean()
+
+            ax5.set_title("Uncaptured residuals", fontsize=12, fontweight="bold")
+            ax5.axhline(y=0, color="black", linestyle="--", alpha=0.5, linewidth=1)
+            ax5.scatter(
+                residuals.index,
+                np.array(residuals.values),
+                s=20,
+                alpha=0.6,
+                label="Residue",
+            )
+            ax5.plot(
+                residuals.index, rolling, color="orange", lw=2, label="Rolling mean"
+            )
+            ax5.grid(True, alpha=0.3)
+            ax5.set_xlabel("Time", fontsize=10)
+            ax5.set_ylabel(f"{ticker} Residuals", fontsize=10)
+
+            # ===== PLOT 6: Autocorrelation of residuals =====
+            plot_acf(residuals.dropna(), zero=False, lags=120, ax=ax6)
+            for line in ax6.lines:
+                line.set_markersize(2)
+            ax6.set_title("ACF", fontsize=12, fontweight="bold")
+            ax6.set_xlabel("Lag")
+            ax6.set_ylabel("ACF")
+
             plt.show()
 
 
@@ -377,11 +497,9 @@ class StackedOracle(Oracle):
         # Initialize state tracking attributes
         self.residuals: List[Dict[str, pd.Series]] = []
         self.approx_residuals: List[Dict[str, pd.Series]] = []
-        #self._last_regression_data = None
+        # self._last_regression_data = None
 
-    def _predict(
-        self, data: Dict[str, pd.Series]
-    ) -> np.ndarray:
+    def _predict(self, data: Dict[str, pd.Series]) -> np.ndarray:
         """
         Perform prediction by sequentially applying oracles to predict residuals.
 
@@ -408,7 +526,7 @@ class StackedOracle(Oracle):
         predictions: List[np.ndarray] = []
 
         # Store reference to input data for diagnostics
-        #self._last_regression_data = data.copy()
+        # self._last_regression_data = data.copy()
 
         # Initialize with original data as first residual
         self.residuals.append({tk: s.reset_index(drop=True) for tk, s in data.items()})
@@ -422,9 +540,7 @@ class StackedOracle(Oracle):
                 )
 
                 # Extract the extrapolated values for final combination
-                extrapolated_values = np.array(
-                    [pred[tk].iloc[-1] for tk in tickers]
-                )
+                extrapolated_values = np.array([pred[tk].iloc[-1] for tk in tickers])
                 predictions.append(extrapolated_values)
 
                 # Remove extrapolated values for residual calculation
@@ -437,8 +553,12 @@ class StackedOracle(Oracle):
                 new_residuals = {}
                 for ticker in tickers:
                     try:
-                        new_residuals[ticker] = (
-                            self.residuals[-1][ticker] - pred[ticker]
+                        # new_residuals[ticker] = self.residuals[-1][ticker] - pred[ticker]
+                        new_residuals[ticker] = wavelet_denoise(
+                            self.residuals[-1][ticker] - pred[ticker],
+                            wavelet="db20",
+                            threshold_method="soft",
+                            level=None,
                         )
                     except Exception as e:
                         raise RuntimeError(
@@ -477,5 +597,3 @@ class StackedOracle(Oracle):
             raise RuntimeError(f"Failed to add extrapolated predictions: {e}")
 
         return net_prediction
-
-    

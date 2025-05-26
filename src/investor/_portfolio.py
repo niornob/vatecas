@@ -5,6 +5,7 @@ from typing import (
     Dict,
     List,
 )
+from collections import OrderedDict
 
 from .atomic_types import Position, Signal, Order
 from ._sizing import SizingModel
@@ -20,7 +21,9 @@ class OrderGenerator:
     Responsible for generating orders based on trading signals and portfolio constraints.
     """
 
-    STRONG_BUY_THRESHOLD = .5
+    STRONG_BUY_THRESHOLD = 0.5
+    WEAK_MARKET_THRESHOLD = 0.1
+    PANIC_SELL_FALLOFF = 5  # 1 => no panic, <1 => double down, >1 => panic
 
     def __init__(
         self,
@@ -85,6 +88,21 @@ class OrderGenerator:
         Returns:
             Dictionary of ticker to Order objects.
         """
+
+        # Sell a lot in a weak market.
+        """
+        largest_signal = max(s.value for s in signals.values())
+
+        if largest_signal < self.WEAK_MARKET_THRESHOLD:
+            print("panic", list(signals.values())[0].timestamp)
+            for tk, s in signals.items():
+                signals[tk].value = self._push_toward_sell(
+                    s.value,
+                    threshold=self.WEAK_MARKET_THRESHOLD,
+                    falloff=self.PANIC_SELL_FALLOFF,
+                )
+        """
+
         # Partition signals
         sells = [(tk, s) for tk, s in signals.items() if s.value < 0]
         buys = [(tk, s) for tk, s in signals.items() if s.value >= 0]
@@ -95,25 +113,50 @@ class OrderGenerator:
             for tk, s in sells
         )
 
+        # net equity
+        equity = sum(positions[tk].size * current_prices[tk] for tk in positions)
+
         # Cash needed to fully fund strong buys
         strong = [(tk, s) for tk, s in buys if s.value >= self.STRONG_BUY_THRESHOLD]
-        required_strong_cash = sum(
+        strong_values = [
             self.sizing_model.size_position(
-                s.value,
-                s.price,
-                cash,
-                positions.get(tk, Position(tk)).value(s.price),
-                self.max_position_size,
+                signal=s.value,
+                price=s.price,
+                equity=equity,
+                position_value=positions.get(tk, Position(tk)).value(s.price),
+                max_position_size=self.max_position_size,
             )
             * s.price
             * (1 + self.slippage)
             + self.commission
             for tk, s in strong
-        )
+        ]
+        """
+        strong_data = [
+            [
+                tk,
+                s.value,
+                s.price,
+                cash,
+                positions.get(tk, Position(tk)).value(s.price),
+                self.max_position_size,
+                self.sizing_model.size_position(
+                    s.value,
+                    s.price,
+                    cash,
+                    positions.get(tk, Position(tk)).value(s.price),
+                    self.max_position_size,
+                ),
+            ]
+            for tk, s in strong
+        ]
+        """
+        required_strong_cash = sum(strong_values)
 
         total_available = cash + potential_sell_cash
+        # print(total_available, cash, required_strong_cash, strong, strong_data)
         if total_available < required_strong_cash:
-            #print("pre: ", signals)
+            # print("pre: ", signals)
             # Compute dampening parameters
             total_strong = sum(
                 s.value
@@ -126,7 +169,7 @@ class OrderGenerator:
                 if s.value < self.STRONG_BUY_THRESHOLD
             )
             if absolute_weak > 0:
-                falloff = 1 + 1 * (total_strong / absolute_weak)
+                falloff = 1 + 2 * (total_strong / absolute_weak)
                 # Apply dampening to all weak signals (both buys < threshold and sells)
                 for tk, s in signals.items():
                     if s.value < self.STRONG_BUY_THRESHOLD:
@@ -136,7 +179,7 @@ class OrderGenerator:
                             falloff=falloff,
                         )
 
-            #print("post: ", signals)
+            # print("post: ", signals)
 
         #
         available_cash = cash
@@ -187,7 +230,10 @@ class OrderGenerator:
 
             if size > 0 and order.total_cost > available_cash:
                 adjusted = max(
-                    int((available_cash - self.commission) / (price * (1 + self.slippage) + 1e-5)),
+                    int(
+                        (available_cash - self.commission)
+                        / (price * (1 + self.slippage) + 1e-5)
+                    ),
                     0,
                 )
                 if adjusted < self.min_trade_size:
@@ -215,7 +261,7 @@ class OrderGenerator:
 @dataclass
 class PortfolioState:
     """Represents the current state of a portfolio."""
-
+    timestamp: pd.Timestamp
     cash: float
     positions: Dict[str, Position] = field(default_factory=dict)
     initial_cash: float = field(init=False)
@@ -254,7 +300,7 @@ class Portfolio:
             initial_capital: Initial cash amount.
             order_generator: Order generator component.
         """
-        self.state = PortfolioState(cash=initial_capital, positions=initial_positions)
+        self.state = PortfolioState(cash=initial_capital, positions=initial_positions, timestamp=initial_time)
         self.order_generator = order_generator
         self.order_history: List[Order] = []
         self.initial_time = initial_time
@@ -266,6 +312,10 @@ class Portfolio:
     @property
     def positions(self) -> Dict[str, Position]:
         return self.state.positions
+    
+    @property
+    def timestamp(self) -> pd.Timestamp:
+        return self.state.timestamp
 
     def process_signals(
         self,
@@ -316,7 +366,14 @@ class Portfolio:
         Args:
             orders: Dictionary of ticker to Order objects.
         """
-        for ticker, order in orders.items():
+        timeordered_orders = OrderedDict(
+            sorted(orders.items(), key=lambda item: item[1].timestamp)
+        )
+        for ticker, order in timeordered_orders.items():
+            # if order is in the past (relative to state timestamp), then do nothing
+            if order.timestamp < self.timestamp:
+                continue
+
             # Get or create position
             if ticker not in self.state.positions:
                 self.state.positions[ticker] = Position(ticker=ticker)
@@ -329,6 +386,9 @@ class Portfolio:
 
             # Record the order
             self.order_history.append(order)
+
+            # Update state timestamp
+            self.state.timestamp = max(order.timestamp, self.state.timestamp)
 
             # Remove positions with zero size
             if abs(self.state.positions[ticker].size) < 1e-6:

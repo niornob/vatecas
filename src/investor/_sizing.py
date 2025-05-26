@@ -12,7 +12,7 @@ class SizingModel(Protocol):
         self,
         signal: float,
         price: float,
-        available_cash: float,
+        equity: float,
         position_value: float,
         max_position_size: float,
     ) -> float:
@@ -22,7 +22,7 @@ class SizingModel(Protocol):
         Args:
             signal: Value between -1 and 1. <0 is a sell, >0 is a buy.
             price: Current price of the asset.
-            available_cash: Available cash for buying.
+            equity: net equity.
             position_value: Current position value for selling.
             max_position_size: Maximum allowed position size.
 
@@ -47,7 +47,7 @@ class FixedFractionalSizing:
         self,
         signal: float,
         price: float,
-        available_cash: float,
+        equity: float,
         position_value: float,
         max_position_size: float,
     ) -> float:
@@ -57,7 +57,7 @@ class FixedFractionalSizing:
         Args:
             signal: Value between -1 and 1. <0 is a sell, >0 is a buy.
             price: Current price of the asset.
-            available_cash: Available cash for buying.
+            equity: net equity.
             position_value: Current position value for selling.
             max_position_size: Maximum allowed position size.
 
@@ -71,7 +71,8 @@ class FixedFractionalSizing:
             return 0.0
 
         # Use current cash for buys, current position value for sells
-        base = available_cash if signal > 0 else position_value
+        #base = available_cash if signal > 0 else position_value
+        base = equity if signal > 0 else position_value
         dollar_amount = self.fraction * base * signal
 
         # Apply position size limit

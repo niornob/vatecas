@@ -4,7 +4,6 @@ from typing import Optional, Tuple, Any, Dict
 import pandas as pd
 import matplotlib.pyplot as plt
 from filterpy.kalman import UnscentedKalmanFilter, MerweScaledSigmaPoints
-from tqdm import tqdm
 
 import sys
 from pathlib import Path
@@ -34,7 +33,7 @@ class KalmanFilter(Oracle):
         alpha: float = 0.1,
         beta: float = 2.0,
         kappa: float = 0.0,
-        warmup_period: int = 0,
+        warmup_period: int = 0
     ):
         """
         Initialize the Kalman Filter Oracle.
@@ -60,7 +59,7 @@ class KalmanFilter(Oracle):
         self.kappa = kappa
         self.warmup_period = warmup_period
 
-    def _predict(self, data: Dict[str, pd.Series]) -> np.ndarray:
+    def _predict(self, data: dict[str, pd.Series]) -> np.ndarray:
         # Input validation
         if not data:
             raise ValueError("Input data dictionary cannot be empty")
@@ -175,114 +174,3 @@ class KalmanFilter(Oracle):
 
         # Return the predicted next state as a 1D numpy array
         return ukf.x.copy()
-
-    def diagnostics(
-        self, data: Dict[str, pd.Series], window: Optional[int] = None, **kwargs
-    ) -> Any:
-        # Input validation
-        if not data:
-            raise ValueError("Input data dictionary cannot be empty")
-
-        # Convert to DataFrame for easier handling and ensure all series have same index
-        actual_df = pd.DataFrame(data)
-        dates = actual_df.index
-        variables = actual_df.columns
-
-        # Validate that we have enough data points for meaningful analysis
-        if len(dates) < 2:
-            raise ValueError("Need at least 2 data points for diagnostic analysis")
-
-        # Initialize predictions DataFrame with same structure as actual data
-        if window is None:
-            window = len(actual_df)
-
-        preds_df = pd.DataFrame(
-            self.regress(
-                data={tk: actual_df[tk] for tk in actual_df.columns}, window=window
-            )
-        )
-
-        # Generate diagnostic plots for each variable
-        self._generate_diagnostic_plots(actual_df, preds_df, dates, variables)
-
-        # Calculate and display performance metrics
-        self._calculate_performance_metrics(actual_df, preds_df, variables)
-
-    def _generate_diagnostic_plots(
-        self,
-        actual_df: pd.DataFrame,
-        preds_df: pd.DataFrame,
-        dates: pd.Index,
-        variables: pd.Index,
-    ) -> None:
-        """Generate comparison plots for actual vs predicted values."""
-
-        for variable in variables:
-            plt.figure(figsize=(12, 4))
-
-            # Plot actual values
-            plt.plot(
-                dates,
-                actual_df[variable],
-                label=f"Actual {variable}",
-                linewidth=2,
-                alpha=0.8,
-            )
-
-            # Plot predicted values
-            plt.plot(
-                dates,
-                preds_df[variable],
-                label="1-Step Kalman Forecast",
-                linestyle="--",
-                linewidth=1.5,
-                alpha=0.7,
-            )
-
-            # Customize the plot
-            plt.title(
-                f"One-Step-Ahead Kalman Filter Forecast vs Actual — {variable}",
-                fontsize=14,
-                fontweight="bold",
-            )
-            plt.xlabel("Time", fontsize=12)
-            plt.ylabel(f"{variable} Value", fontsize=12)
-            plt.legend(fontsize=11)
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-
-            # Show the plot
-            plt.show()
-
-    def _calculate_performance_metrics(
-        self, actual_df: pd.DataFrame, preds_df: pd.DataFrame, variables: pd.Index
-    ) -> None:
-        """Calculate and display performance metrics for the predictions."""
-
-        print("\n" + "=" * 60)
-        print("KALMAN FILTER PREDICTION PERFORMANCE METRICS")
-        print("=" * 60)
-
-        for variable in variables:
-            # Skip first value since we don't have a real prediction for it
-            actual_vals = actual_df[variable].iloc[1:].values
-            pred_vals = preds_df[variable].iloc[1:].values
-
-            # Calculate common performance metrics
-            mse = np.mean((actual_vals - pred_vals) ** 2)
-            rmse = np.sqrt(mse)
-            mae = np.mean(np.abs(actual_vals - pred_vals))
-
-            # Calculate percentage-based metrics
-            mape = np.mean(np.abs((actual_vals - pred_vals) / actual_vals)) * 100
-
-            # Calculate correlation
-            correlation = np.corrcoef(actual_vals, pred_vals)[0, 1]
-
-            print(f"\nVariable: {variable}")
-            print(f"  Root Mean Square Error (RMSE): {rmse:.6f}")
-            print(f"  Mean Absolute Error (MAE):     {mae:.6f}")
-            print(f"  Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
-            print(f"  Correlation with actual values: {correlation:.4f}")
-
-        print("\n" + "=" * 60)

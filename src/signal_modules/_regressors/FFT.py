@@ -209,7 +209,7 @@ class FFTFilter(Oracle):
         # Transform back to time domain with the desired number of samples
         return np.fft.irfft(filtered_fft, n=n_samples)
 
-    def diagnostics(self, data: Dict[str, pd.Series], window: Optional[int] = None, **kwargs) -> None:
+    def FFT_diagnostics(self, data: Dict[str, pd.Series], window: Optional[int] = None, **kwargs) -> None:
         """
         Perform rolling forecast diagnostics on the FFT filter oracle.
         

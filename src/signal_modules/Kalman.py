@@ -1,4 +1,4 @@
-from typing import Dict, Any, cast
+from typing import Dict, Any, cast, Tuple
 import numpy as np
 import pandas as pd
 from typing import Mapping
@@ -7,7 +7,7 @@ from scipy.stats import rankdata
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
-
+from collections import deque
 
 
 from .base import SignalModule
@@ -23,7 +23,7 @@ class UKFSignalModule(SignalModule):
         print(name, "model loaded from:", os.path.abspath(__file__))
         super().__init__(name=name, version=version, params=params)
         self.last_prediction: pd.Series = pd.Series()
-        self.window = params.get('window', 50)
+        self.window = params.get("window", 50)
 
     def _create_and_apply_filter(
         self,
@@ -52,7 +52,7 @@ class UKFSignalModule(SignalModule):
         # Initialization
         if len(values) > max(10, warmup_period):
             ukf.x = values[-1].copy()
-            recent_changes = np.diff(values[-min(20, len(values)-1):], axis=0)
+            recent_changes = np.diff(values[-min(20, len(values) - 1) :], axis=0)
             base_var = np.var(values, axis=0).mean()
             change_var = (
                 np.var(recent_changes, axis=0).mean()
@@ -82,7 +82,7 @@ class UKFSignalModule(SignalModule):
                 ukf.update(z)
             except np.linalg.LinAlgError:
                 ukf.P += np.eye(m) * 1e-6
-                ukf.predict();
+                ukf.predict()
                 ukf.update(z)
 
         # Main filtering loop
@@ -110,18 +110,19 @@ class UKFSignalModule(SignalModule):
         return ukf.x.copy()
 
     def generate_signals(
-        self,
-        data: Dict[str, pd.DataFrame],
-    ) -> Dict[str, float]:
+        self, data: dict[str, pd.DataFrame], prediction_history: deque = deque([])
+    ) -> Tuple[Dict[str, float], Dict[str, float]]:
         tickers = list(data.keys())
         m = len(tickers)
-        price_df = pd.concat([data[t]["adjClose"].rename(t) for t in tickers], axis=1).dropna()
+        price_df = pd.concat(
+            [data[t]["adjClose"].rename(t) for t in tickers], axis=1
+        ).dropna()
         values = price_df.values
 
         # parameters
         proc_noise = cast(float, self.params.get("process_noise", 1e-3))
         obs_scale = cast(float, self.params.get("observation_noise_scale", 1e-2))
-        warmup = cast(int, self.params.get("warmup", min(30, max(0, len(values)//3))))
+        warmup = cast(int, self.params.get("warmup", min(30, max(0, len(values) // 3))))
         alpha = cast(float, self.params.get("alpha", 0.1))
         beta = cast(float, self.params.get("beta", 2.0))
         kappa = cast(float, self.params.get("kappa", 0.0))
@@ -130,15 +131,22 @@ class UKFSignalModule(SignalModule):
             values, proc_noise, obs_scale, alpha, beta, kappa, warmup
         )
 
-        #print(predicted_price)
+        # print(predicted_price)
 
         self.last_prediction = pd.Series(predicted_price, index=tickers)
         last_obs = values[-1]
-        returns_pred = (predicted_price - last_obs) / np.where(last_obs != 0, last_obs, 1)
+        returns_pred = (predicted_price - last_obs) / np.where(
+            last_obs != 0, last_obs, 1
+        )
         ranks = rankdata(returns_pred, method="average")
         signals = ranks / m
 
-        return {tickers[i]: float(signals[i]) for i in range(m)}
+        signals_dict = {tickers[i]: float(signals[i]) for i in range(m)}
+        predicted_price_dict = {
+            ticker: price for ticker, price in zip(price_df.columns, predicted_price)
+        }
+
+        return signals_dict, predicted_price_dict
 
     def diagnostics(self, data: Mapping[str, pd.DataFrame]) -> None:
         actual = pd.DataFrame({t: data[t]["adjClose"] for t in data})
@@ -149,14 +157,26 @@ class UKFSignalModule(SignalModule):
         window_size = min(self.window, len(actual))
 
         for i in tqdm(range(1, len(dates)), desc="UKF forecasting"):
-            history = {t: df.iloc[max(0, i-window_size):i] for t, df in data.items()}
+            history = {
+                t: df.iloc[max(0, i - window_size) : i] for t, df in data.items()
+            }
             _ = self.generate_signals(history)
-            preds.iloc[i, :]    = self.last_prediction.to_numpy()
+            preds.iloc[i, :] = self.last_prediction.to_numpy()
 
         for ticker in tickers:
-            plt.figure(figsize=(10,4))
+            plt.figure(figsize=(10, 4))
             plt.plot(dates, actual[ticker], label=f"Actual {ticker}")
-            plt.plot(dates, preds[ticker], label="1-Step Combined Forecast", linestyle='-', linewidth=1)
+            plt.plot(
+                dates,
+                preds[ticker],
+                label="1-Step Combined Forecast",
+                linestyle="-",
+                linewidth=1,
+            )
             plt.title(f"One-Step-Ahead Forecast vs Actual — {ticker}")
-            plt.xlabel("Date"); plt.ylabel("Price")
-            plt.legend(); plt.grid(True); plt.tight_layout(); plt.show()
+            plt.xlabel("Date")
+            plt.ylabel("Price")
+            plt.legend()
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()

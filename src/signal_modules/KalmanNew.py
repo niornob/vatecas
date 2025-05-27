@@ -55,29 +55,24 @@ class UKFSignalModule(SignalModule):
         )
 
         price = {tk: df["adjClose"] for tk, df in data.items()}
-        predicted_price = regressor._predict_mean(data=price)
+        predicted_price = regressor.predict(data=price).predictions
         tomorrow = max(list(price.values())[0].index) + pd.Timedelta(days=1)
         augmented_price_df = pd.DataFrame(price)
         price_today = augmented_price_df.values[-1]
         #print(price_today)
         augmented_price_df.loc[tomorrow] = predicted_price
-        predicted_price_2 = regressor._predict(
-            data={tk: augmented_price_df[tk] for tk in augmented_price_df.columns}
-        )
-
         if len(prediction_history) < 3:
             assert(len(list(price.values())[0]) > 3)
             for i in range(3):
-                pred = regressor._predict(
+                pred = regressor.predict(
                     data={tk: s.iloc[: i - 3] for tk, s in price.items()}
-                )
+                ).predictions
                 prediction_history.append(pred)
 
         momentum = prediction_history[-1] - prediction_history[-2]
         two_step_momentum = prediction_history[-1] - prediction_history[-3]
         one_step_return = predicted_price - prediction_history[-1]
         one_step_returnX = predicted_price - price_today
-        two_step_return = predicted_price_2 - prediction_history[-1]
         two_step_return_lagged = predicted_price - prediction_history[-2]
         acceleration = one_step_return - momentum
 

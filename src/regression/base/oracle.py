@@ -2,10 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, List, Tuple, cast, Literal
 import pandas as pd
 import numpy as np
-from arch import arch_model
-from arch.univariate.base import ARCHModelResult
-from sklearn.decomposition import PCA
-import warnings
+from tqdm import tqdm
 
 import sys
 from pathlib import Path
@@ -65,7 +62,7 @@ class Oracle(ABC):
         """
         Predict variance structure using GARCH models and PCA.
 
-        This method implements a sophisticated variance forecasting approach:
+        This method implements a variance forecasting approach:
         1. Convert price series to returns
         2. Fit individual GARCH models for each asset
         3. Perform PCA to identify the dominant market factor
@@ -79,7 +76,7 @@ class Oracle(ABC):
         """
         return GARCH(data=data, params=volatility_params)
 
-    def _predict(self, data: Dict[str, pd.Series]) -> PredictionResult:
+    def predict(self, data: Dict[str, pd.Series]) -> PredictionResult:
         """
         Combined prediction method that forecasts both mean and variance.
 
@@ -91,8 +88,9 @@ class Oracle(ABC):
 
         # Get variance predictions using GARCH and PCA
         garch_params = {
+            "vol": "GARCH",
             "p": 1,
-            "q": 1,
+            "q": 2,
             "distribution": "normal",
             "rescale": True,
             "mean": "zero",
@@ -145,27 +143,26 @@ class Oracle(ABC):
         tickers = list(data_df.columns)
         pred_len = data_len + (1 if extrapolate else 0)
 
-        # Initialize prediction containers
+        # Initialize prediction containers filled with null values
         pred = pd.DataFrame(
-            np.zeros((pred_len, len(tickers))), columns=tickers, index=range(pred_len)
+            np.full((pred_len, len(tickers)), np.nan), columns=tickers, index=range(pred_len)
         )
         vol_bands = pd.DataFrame(
-            np.zeros((pred_len, len(tickers))), columns=tickers, index=range(pred_len)
+            np.full((pred_len, len(tickers)), np.nan), columns=tickers, index=range(pred_len)
         )
-        market_factor = pd.Series(np.zeros(pred_len), index=range(pred_len))
+        market_factor = pd.Series(np.full(pred_len, np.nan), index=range(pred_len))
 
         if not extrapolate:
             pred.index = data_df.index
             vol_bands.index = data_df.index
             market_factor.index = data_df.index
 
-        # Set initial conditions
-        pred.iloc[0] = data_df.iloc[0]
-        vol_bands.iloc[0] = 0  # No uncertainty for initial observation
-        market_factor.iloc[0] = 0
+        # Set initial period of inactivity
+        # No data will be available for this period
+        low_data_period = window
 
         # Rolling window prediction with variance
-        for i in range(1, pred_len):
+        for i in tqdm(range(low_data_period, pred_len), desc=f"{self.name} is regressing"):
             # Extract historical window
             window_start = max(0, i - window)
             sliced_df = data_df.iloc[window_start:i]
@@ -175,7 +172,7 @@ class Oracle(ABC):
 
             try:
                 # Get comprehensive prediction result
-                result = self._predict(data=history)
+                result = self.predict(data=history)
 
                 if len(result.predictions) != len(tickers):
                     raise ValueError(

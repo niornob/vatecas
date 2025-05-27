@@ -1,7 +1,7 @@
 default:
   capital: 25000
   commission: 0.0
-  initial_time: '2023-01-01T12:00:00+00:00'
+  initial_time: '2024-01-01T12:00:00+00:00'
   max_position_size: '1e20'
   positions: {
   }

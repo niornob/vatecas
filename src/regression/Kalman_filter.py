@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from regression.base.oracle import Oracle
+from utils.denoise import wavelet_denoise
 
 
 class KalmanFilter(Oracle):
@@ -33,7 +34,7 @@ class KalmanFilter(Oracle):
         alpha: float = 0.1,
         beta: float = 2.0,
         kappa: float = 0.0,
-        warmup_period: int = 0
+        warmup_period: int = 0,
     ):
         """
         Initialize the Kalman Filter Oracle.

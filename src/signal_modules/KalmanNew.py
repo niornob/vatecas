@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from signal_modules.base import SignalModule
-from signal_modules._regressors.Kalman_filter import KalmanFilter
+from regression.Kalman_filter import KalmanFilter
 
 
 class UKFSignalModule(SignalModule):
@@ -55,7 +55,7 @@ class UKFSignalModule(SignalModule):
         )
 
         price = {tk: df["adjClose"] for tk, df in data.items()}
-        predicted_price = regressor._predict(data=price)
+        predicted_price = regressor._predict_mean(data=price)
         tomorrow = max(list(price.values())[0].index) + pd.Timedelta(days=1)
         augmented_price_df = pd.DataFrame(price)
         price_today = augmented_price_df.values[-1]

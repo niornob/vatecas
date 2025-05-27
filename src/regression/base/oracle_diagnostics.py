@@ -1,8 +1,10 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import pearsonr
+from matplotlib.axes import Axes
+from scipy.stats import pearsonr, linregress
 from statsmodels.graphics.tsaplots import plot_acf
+from typing import cast
 
 import sys
 from pathlib import Path
@@ -12,20 +14,79 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from regression.base.oracle import Oracle
 
 
+def scatter_corr(
+    X: pd.Series,
+    Y: pd.Series,
+    ax: Axes,
+    correlation_of: str = "",
+    plot_title: str = "",
+    x_axis_label: str = "",
+    y_axis_label: str = "",
+):
+    common_idx = X.dropna().index.intersection(list(Y.dropna().index))
+    if len(common_idx) > 10:
+        X_aligned = X.loc[common_idx]
+        Y_aligned = Y.loc[common_idx]
+
+        # Create scatter plot
+        ax.scatter(X_aligned, Y_aligned, alpha=0.6, s=25)
+
+        # Add perfect prediction line
+        min_ret = min(X_aligned.min(), Y_aligned.min())
+        max_ret = max(X_aligned.max(), Y_aligned.max())
+        ax.plot([min_ret, max_ret], [min_ret, max_ret], "r--", alpha=0.7, linewidth=1)
+
+        # Add MSE minimizing straight line
+        slope, intercept, r_value, p_value, std_err = linregress(X_aligned, Y_aligned)
+        reg_y = intercept + slope * np.array(list(X_aligned))
+        ax.plot(
+            X_aligned, reg_y, "b-", label=f"Regression: y={slope:.2f}x+{intercept:.2e}"
+        )
+
+        # draw the x-axis
+        ax.axhline(y=cast(float, np.mean(Y)), color="black", linewidth=1.0, linestyle="--")
+
+        # Calculate and display correlation
+        ret_corr, ret_p = pearsonr(X_aligned, Y_aligned)
+        ax.text(
+            0.05,
+            0.95,
+            f"{correlation_of} Correlation: {ret_corr:.3f}\np-value: {ret_p:.3f}",
+            transform=ax.transAxes,
+            fontsize=10,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
+            verticalalignment="top",
+        )
+
+    ax.set_title(plot_title, fontsize=12, fontweight="bold")
+    ax.set_xlabel(x_axis_label, fontsize=10)
+    ax.set_ylabel(y_axis_label, fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+
 def oracle_diagnostics(
-    oracle: "Oracle", data: dict[str, pd.Series], window: int
+    oracle: "Oracle",
+    data: dict[str, pd.Series],
+    regress_window: int,
+    smoothing_window: int = 1,
 ) -> None:
     """Generate enhanced comparison plots including variance bands and market factor analysis."""
     actual_df = pd.DataFrame(data)
-    preds_df, vol_bands_df, market_factor = oracle.regress(data, window=window)
+    preds_df, vol_bands_df, market_factor = oracle.regress(data, window=regress_window)
     preds_df = pd.DataFrame(preds_df)
     vol_bands_df = pd.DataFrame(vol_bands_df)
+
+    actual_df = actual_df.rolling(window=smoothing_window, min_periods=1).mean()
+    preds_df = preds_df.rolling(window=smoothing_window, min_periods=1).mean()
+
+    # is this how you change the variance when you take rolling average of the underlying series?
+    vol_bands_df = vol_bands_df / smoothing_window
 
     dates = actual_df.index
     tickers = actual_df.columns
 
     # Define low data period (first 'window' periods where predictions are unreliable)
-    low_data_period = window
+    low_data_period = regress_window
 
     for ticker in tickers:
         # Calculate returns for both actual and predicted prices
@@ -49,7 +110,7 @@ def oracle_diagnostics(
         ax8 = fig.add_subplot(gs[4, :])  # Volatility time series
 
         fig.suptitle(
-            f"{oracle.name} Enhanced Analysis: {ticker}",
+            f"{oracle.name} Analysis: {ticker} (applied {smoothing_window}-days rolling avg.)",
             fontsize=18,
             fontweight="bold",
         )
@@ -77,8 +138,10 @@ def oracle_diagnostics(
         )
 
         # Calculate returns (period-to-period changes)
-        actual_returns = actual_df[ticker].diff().astype(float)  # This gives us the change from t to t+1
-        pred_returns = preds_df[ticker].diff().astype(float)     # Same for predictions
+        actual_returns = (
+            actual_df[ticker].diff().astype(float)
+        )  # This gives us the change from t to t+1
+        pred_returns = preds_df[ticker].diff().astype(float)  # Same for predictions
 
         # Create boolean masks for vectorized operations (more efficient and avoids type issues)
         # Drop the first NaN value that diff() creates
@@ -99,20 +162,20 @@ def oracle_diagnostics(
 
         # Add background coloring based on return sign agreement
         # We start from index 1 in the original dates because first return represents change from date[0] to date[1]
-        for i, j, agree in zip(idx[:-1], idx[1:], signs_agree[1:]):            
+        for i, j, agree in zip(idx[:-1], idx[1:], signs_agree[1:]):
             # Choose color based on whether the returns moved in the same direction
             if agree:
                 # Green when both returns have same sign (both positive or both negative)
-                color = 'lightgreen'
+                color = "lightgreen"
                 alpha = 0.2
             else:
                 # Red when returns have opposite signs
-                color = 'lightcoral'
+                color = "lightcoral"
                 alpha = 0.2
-            
+
             # Add vertical span for this time period
             # We color from dates[date_idx-1] to dates[date_idx] since the return represents change between these points
-            ax1.axvspan(i, j, color=color, alpha=alpha, zorder=0, linewidth=.5)
+            ax1.axvspan(i, j, color=color, alpha=alpha, zorder=0, linewidth=0.5)
 
         # Confidence bands (±1 and ±2 standard deviations)
         upper_1std = preds_df[ticker] + vol_bands_df[ticker]
@@ -158,54 +221,34 @@ def oracle_diagnostics(
 
         # Add legend entries for the background coloring
         from matplotlib.patches import Patch
+
         legend_elements = ax1.get_legend_handles_labels()
-        legend_elements[0].extend([
-            Patch(facecolor='lightgreen', alpha=0.2, label='Returns aligned'),
-            Patch(facecolor='lightcoral', alpha=0.2, label='Returns opposed')
-        ])
+        legend_elements[0].extend(
+            [
+                Patch(facecolor="lightgreen", alpha=0.2, label="Returns aligned"),
+                Patch(facecolor="lightcoral", alpha=0.2, label="Returns opposed"),
+            ]
+        )
         ax1.legend(handles=legend_elements[0], fontsize=10)
 
         ax1.grid(True, alpha=0.3)
 
         # ===== PLOT 2: Return correlation scatter plot =====
         # Align returns for comparison (both start from day 2 due to pct_change)
+        scatter_corr(
+            X=actual_returns,
+            Y=pred_returns,
+            ax=ax2,
+            correlation_of="Return",
+            plot_title="Predicted vs Actual Returns",
+            x_axis_label="Actual Returns",
+            y_axis_label="Predicted Returns",
+        )
+
+        # ===== PLOT 3: Sign correlation bar plot =====
         common_idx = actual_returns.dropna().index.intersection(
             list(pred_returns.dropna().index)
         )
-        if len(common_idx) > 10:
-            actual_ret_aligned = actual_returns.loc[common_idx]
-            pred_ret_aligned = pred_returns.loc[common_idx]
-
-            # Create scatter plot
-            ax2.scatter(
-                actual_ret_aligned, pred_ret_aligned, alpha=0.6, s=25, color="blue"
-            )
-
-            # Add perfect prediction line
-            min_ret = min(actual_ret_aligned.min(), pred_ret_aligned.min())
-            max_ret = max(actual_ret_aligned.max(), pred_ret_aligned.max())
-            ax2.plot(
-                [min_ret, max_ret], [min_ret, max_ret], "r--", alpha=0.7, linewidth=1.5
-            )
-
-            # Calculate and display correlation
-            ret_corr, ret_p = pearsonr(actual_ret_aligned, pred_ret_aligned)
-            ax2.text(
-                0.05,
-                0.95,
-                f"Return Correlation: {ret_corr:.3f}\np-value: {ret_p:.3f}",
-                transform=ax2.transAxes,
-                fontsize=10,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
-                verticalalignment="top",
-            )
-
-        ax2.set_title("Predicted vs Actual Returns", fontsize=12, fontweight="bold")
-        ax2.set_xlabel("Actual Returns", fontsize=10)
-        ax2.set_ylabel("Predicted Returns", fontsize=10)
-        ax2.grid(True, alpha=0.3)
-
-        # ===== PLOT 3: Sign correlation bar plot =====
         if len(common_idx) > 10:
             actual_ret_aligned = actual_returns.loc[common_idx]
             pred_ret_aligned = pred_returns.loc[common_idx]
@@ -251,7 +294,7 @@ def oracle_diagnostics(
 
             # Add text with correlation
             ax3.text(
-                0.05,
+                0.35,
                 0.95,
                 f"Sign Correlation: {sign_corr:.3f}\np-value: {sign_p:.3f}",
                 transform=ax3.transAxes,
@@ -267,7 +310,7 @@ def oracle_diagnostics(
             ax3.set_title(
                 "Return Sign Prediction Accuracy", fontsize=12, fontweight="bold"
             )
-            #ax3.legend(fontsize=9)
+            # ax3.legend(fontsize=9)
             ax3.grid(True, alpha=0.3)
 
         # ===== PLOT 4: Volatility forecast accuracy =====
@@ -278,43 +321,15 @@ def oracle_diagnostics(
         )  # Forward-looking realized vol
         predicted_vol = vol_bands_df[ticker].dropna() / 100  # Convert to decimal
 
-        # Align series for comparison
-        common_idx_vol = realized_vol.dropna().index.intersection(
-            list(predicted_vol.index)
+        scatter_corr(
+            X=realized_vol,
+            Y=predicted_vol,
+            ax=ax4,
+            correlation_of="Volatility",
+            plot_title="Predicted vs Actual Volatility",
+            x_axis_label="Actual Volatility",
+            y_axis_label="Predicted Volatility"
         )
-        if len(common_idx_vol) > 10:
-            realized_aligned = realized_vol.loc[common_idx_vol]
-            predicted_aligned = predicted_vol.loc[common_idx_vol]
-
-            ax4.scatter(realized_aligned, predicted_aligned, alpha=0.6, s=25)
-
-            # Add perfect prediction line
-            min_vol = min(realized_aligned.min(), predicted_aligned.min())
-            max_vol = max(realized_aligned.max(), predicted_aligned.max())
-            ax4.plot(
-                [min_vol, max_vol],
-                [min_vol, max_vol],
-                "r--",
-                alpha=0.7,
-                linewidth=1.5,
-            )
-
-            # Calculate and display correlation
-            vol_corr, vol_p = pearsonr(realized_aligned, predicted_aligned)
-            ax4.text(
-                0.05,
-                0.95,
-                f"Vol Correlation: {vol_corr:.3f}\np-value: {vol_p:.3f}",
-                transform=ax4.transAxes,
-                fontsize=10,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcyan", alpha=0.8),
-                verticalalignment="top",
-            )
-
-        ax4.set_title("Volatility Forecast Accuracy", fontsize=12, fontweight="bold")
-        ax4.set_xlabel("Realized Volatility", fontsize=10)
-        ax4.set_ylabel("Predicted Volatility", fontsize=10)
-        ax4.grid(True, alpha=0.3)
 
         # ===== PLOT 5: Return distribution analysis =====
         if len(actual_returns_full) > 10:

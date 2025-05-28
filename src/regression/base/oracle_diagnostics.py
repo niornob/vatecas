@@ -5,6 +5,7 @@ from matplotlib.axes import Axes
 from scipy.stats import pearsonr, linregress
 from statsmodels.graphics.tsaplots import plot_acf
 from typing import cast
+from tqdm import tqdm
 
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from regression.base.oracle import Oracle
+from regression.volatility.GARCHpq import garch_series
 
 
 def scatter_corr(
@@ -71,13 +73,23 @@ def oracle_diagnostics(
     smoothing_window: int = 1,
 ) -> None:
     """Generate enhanced comparison plots including variance bands and market factor analysis."""
-    actual_df = pd.DataFrame(data)
     preds_df, vol_bands_df, market_factor = oracle.regress(data, window=regress_window)
+
+    # convert data and prediction to dataframe for easier handling
+    actual_df = pd.DataFrame(data)
     preds_df = pd.DataFrame(preds_df)
     vol_bands_df = pd.DataFrame(vol_bands_df)
 
-    actual_df = actual_df.rolling(window=smoothing_window, min_periods=1).mean()
-    preds_df = preds_df.rolling(window=smoothing_window, min_periods=1).mean()
+    # replace data and prediction by their rolling means over smoothing_window days
+    actual_df = actual_df.rolling(window=smoothing_window, min_periods=1).mean().dropna()
+    preds_df = preds_df.rolling(window=smoothing_window, min_periods=1).mean().dropna()
+
+    # compute volatiliy in data and in prediction for later comparison
+    data_vol = {}
+    pred_vol = {}
+    for ticker in tqdm(data, desc=f"Computing volatility."):
+        #data_vol[ticker] = garch_series(1e3 * actual_df[ticker].pct_change().dropna()) / 10
+        pred_vol[ticker] = garch_series(1e3 * preds_df[ticker].pct_change().dropna()) / 10
 
     # is this how you change the variance when you take rolling average of the underlying series?
     vol_bands_df = vol_bands_df / smoothing_window
@@ -118,7 +130,7 @@ def oracle_diagnostics(
         # ===== PLOT 1: Price predictions with confidence bands =====
         # Your existing plotting code with added background coloring
         ax1.plot(
-            dates,
+            actual_df[ticker].index,
             actual_df[ticker],
             label=f"Actual {ticker}",
             linewidth=1,
@@ -128,7 +140,7 @@ def oracle_diagnostics(
 
         # Main prediction line
         ax1.plot(
-            dates,
+            preds_df[ticker].index,
             preds_df[ticker],
             label=f"Predicted {ticker}",
             color="red",
@@ -178,10 +190,12 @@ def oracle_diagnostics(
             ax1.axvspan(i, j, color=color, alpha=alpha, zorder=0, linewidth=0.5)
 
         # Confidence bands (±1 and ±2 standard deviations)
-        upper_1std = preds_df[ticker] + vol_bands_df[ticker]
-        lower_1std = preds_df[ticker] - vol_bands_df[ticker]
-        upper_2std = preds_df[ticker] + 2 * vol_bands_df[ticker]
-        lower_2std = preds_df[ticker] - 2 * vol_bands_df[ticker]
+        # vol_bands_df contains volatility or std deviation of percentage returns
+        # we want convert that to a band of price values.
+        upper_1std = preds_df[ticker] * (1 + vol_bands_df[ticker] / 100)
+        lower_1std = preds_df[ticker] * (1 - vol_bands_df[ticker] / 100)
+        upper_2std = preds_df[ticker] * (1 + 2 * vol_bands_df[ticker] / 100)
+        lower_2std = preds_df[ticker] * (1 - 2 * vol_bands_df[ticker] / 100)
 
         ax1.fill_between(
             dates,
@@ -411,15 +425,25 @@ def oracle_diagnostics(
 
         # ===== PLOT 8: Volatility time series =====
         ax8.plot(
-            dates,
-            vol_bands_df[ticker],
+            pred_vol[ticker].index,
+            pred_vol[ticker],
             color="red",
             linewidth=2,
             alpha=0.8,
-            label="Predicted Volatility",
+            label="Predicted Volatility (GARCH)",
         )
 
         # Add realized volatility if we can compute it
+        """
+        ax8.plot(
+            data_vol[ticker].index,
+            data_vol[ticker],
+            color="blue",
+            linewidth=1.5,
+            alpha=0.7,
+            label=f"Realized Volatility",
+        )
+        """
         volatility_window = 5
         if len(actual_returns_full) > volatility_window:
             realized_vol_series = (
@@ -432,7 +456,7 @@ def oracle_diagnostics(
                 color="blue",
                 linewidth=1.5,
                 alpha=0.7,
-                label=f"Realized Volatility ({volatility_window}-day)",
+                label=f"Realized Volatility (StDev: {volatility_window}-day)",
             )
 
         # Gray out low data period

@@ -41,7 +41,7 @@ class UKFSignalModule(SignalModule):
         proc_noise = cast(float, self.params.get("process_noise", 1e-3))
         obs_scale = cast(float, self.params.get("observation_noise_scale", 1e-2))
         warmup = cast(int, self.params.get("warmup", 0))
-        alpha = cast(float, self.params.get("alpha", 0.1))
+        alpha = cast(float, self.params.get("alpha", 0.5))
         beta = cast(float, self.params.get("beta", 2.0))
         kappa = cast(float, self.params.get("kappa", 0.0))
 

@@ -97,7 +97,7 @@ class KalmanFilter(Oracle):
         values: np.ndarray,
         process_noise: float,
         obs_noise_scale: float = 1.0,
-        alpha: float = 0.1,
+        alpha: float = 0.5,
         beta: float = 2.0,
         kappa: float = 0.0,
         warmup_period: int = 0,
@@ -106,10 +106,10 @@ class KalmanFilter(Oracle):
         m = values.shape[1]
 
         def fx(x: np.ndarray, dt: float) -> np.ndarray:
-            return x
+            return x * 1
 
         def hx(x: np.ndarray) -> np.ndarray:
-            return x
+            return x * 1
 
         points = MerweScaledSigmaPoints(n=m, alpha=alpha, beta=beta, kappa=kappa)
         ukf = UnscentedKalmanFilter(
@@ -139,7 +139,7 @@ class KalmanFilter(Oracle):
             ukf.R = np.eye(m) * recent_obs_noise * obs_noise_scale
         else:
             ukf.R = np.eye(m) * base_obs_noise * obs_noise_scale
-        ukf.Q = np.eye(m) * process_noise
+        ukf.Q = np.eye(m) * recent_obs_noise * process_noise
 
         # Warmup
         warmup_data = values[:warmup_period] if warmup_period > 0 else []

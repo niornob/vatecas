@@ -8,13 +8,24 @@ def garch_pq(
     X: pd.Series,
     p: int = 1,
     q: int = 1,
-    mean: Literal["Constant", "Zero", "LS", "AR", "ARX", "HAR", "HARX", "constant", "zero"] = "zero",
+    mean: Literal[
+        "Constant", "Zero", "LS", "AR", "ARX", "HAR", "HARX", "constant", "zero"
+    ] = "zero",
     vol: Literal["GARCH", "ARCH", "EGARCH", "FIGARCH", "APARCH", "HARCH"] = "GARCH",
-    dist: Literal["normal", "gaussian", "t", "studentst", "skewstudent", "skewt", "ged", "generalized error"] = "normal",
+    dist: Literal[
+        "normal",
+        "gaussian",
+        "t",
+        "studentst",
+        "skewstudent",
+        "skewt",
+        "ged",
+        "generalized error",
+    ] = "normal",
 ) -> float:
     """
     Fit a GARCH(p,q) model on the entire input series and return the next one-step-ahead volatility forecast.
-    
+
     This function takes a historical time series, fits a GARCH model to all available data,
     and produces a single volatility forecast for the next time period.
 
@@ -43,8 +54,10 @@ def garch_pq(
     # Check if we have enough data to fit the model
     min_required = max(p, q) + 1
     if len(X) < min_required:
-        raise ValueError(f"Need at least {min_required} observations to fit GARCH({p},{q}), got {len(X)}")
-    
+        raise ValueError(
+            f"Need at least {min_required} observations to fit GARCH({p},{q}), got {len(X)}"
+        )
+
     # Define and fit the GARCH model using all available data
     # This estimates parameters using the entire historical series
     am = arch_model(X, mean=mean, vol=vol, p=p, q=q, dist=dist)
@@ -63,14 +76,25 @@ def garch_series(
     X: pd.Series,
     p: int = 1,
     q: int = 1,
-    mean: Literal["Constant", "Zero", "LS", "AR", "ARX", "HAR", "HARX", "constant", "zero"] = "zero",
+    mean: Literal[
+        "Constant", "Zero", "LS", "AR", "ARX", "HAR", "HARX", "constant", "zero"
+    ] = "zero",
     vol: Literal["GARCH", "ARCH", "EGARCH", "FIGARCH", "APARCH", "HARCH"] = "GARCH",
-    dist: Literal["normal", "gaussian", "t", "studentst", "skewstudent", "skewt", "ged", "generalized error"] = "normal",
+    dist: Literal[
+        "normal",
+        "gaussian",
+        "t",
+        "studentst",
+        "skewstudent",
+        "skewt",
+        "ged",
+        "generalized error",
+    ] = "normal",
     min_obs: Optional[int] = None,
 ) -> pd.Series:
     """
     Compute recursive one-step-ahead GARCH volatility forecasts for an entire time series.
-    
+
     This function implements a rolling window approach where at each time point i,
     it uses all data up to (but not including) time i to forecast volatility at time i.
     This simulates real-time forecasting where you only know the past when making predictions.
@@ -113,22 +137,17 @@ def garch_series(
         # This ensures we're only using information that would have been available
         # at the time of making the forecast
         train_slice = X.iloc[:idx]
-        
+
         try:
             # Use our single-prediction function to get volatility forecast
             # This applies GARCH model to historical data and predicts next period
             volatility_forecast = garch_pq(
-                train_slice, 
-                p=p, 
-                q=q, 
-                mean=mean, 
-                vol=vol, 
-                dist=dist
+                train_slice, p=p, q=q, mean=mean, vol=vol, dist=dist
             )
-            
+
             # Store the forecast at the current time index
             Y.iloc[idx] = volatility_forecast
-            
+
         except (ValueError, Exception):
             # If model fitting fails (e.g., convergence issues), leave as NaN
             # This can happen with difficult-to-fit data or numerical instabilities

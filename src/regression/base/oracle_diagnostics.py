@@ -5,7 +5,8 @@ from matplotlib.axes import Axes
 from scipy.stats import pearsonr, linregress
 from statsmodels.graphics.tsaplots import plot_acf
 from typing import cast
-from tqdm import tqdm
+from scipy import stats
+from scipy.optimize import minimize
 
 import sys
 from pathlib import Path
@@ -53,7 +54,7 @@ def scatter_corr(
         ax.text(
             0.05,
             0.95,
-            f"{correlation_of} Correlation: {ret_corr:.3f}\np-value: {ret_p:.3f}",
+            f"{correlation_of} Correlation: {ret_corr:.3f}\np-value: {ret_p:.5f}",
             transform=ax.transAxes,
             fontsize=10,
             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
@@ -84,13 +85,6 @@ def oracle_diagnostics(
     actual_df = actual_df.rolling(window=smoothing_window, min_periods=1).mean().dropna()
     preds_df = preds_df.rolling(window=smoothing_window, min_periods=1).mean().dropna()
 
-    # compute volatiliy in data and in prediction for later comparison
-    data_vol = {}
-    pred_vol = {}
-    for ticker in tqdm(data, desc=f"Computing volatility."):
-        #data_vol[ticker] = garch_series(1e3 * actual_df[ticker].pct_change().dropna()) / 10
-        pred_vol[ticker] = garch_series(1e3 * preds_df[ticker].pct_change().dropna()) / 10
-
     # is this how you change the variance when you take rolling average of the underlying series?
     vol_bands_df = vol_bands_df / smoothing_window
 
@@ -106,20 +100,17 @@ def oracle_diagnostics(
         pred_returns = preds_df[ticker].pct_change().dropna()
 
         # Create enhanced figure with additional row for return analysis
-        fig = plt.figure(figsize=(20, 24))  # Increased height for extra row
+        fig = plt.figure(figsize=(18, 18))  # Increased height for extra row
         gs = fig.add_gridspec(
-            5, 2, height_ratios=[1, 1, 1, 0.8, 0.8], hspace=0.35, wspace=0.25
+            3, 2, height_ratios=[1.5, 1, 1], hspace=0.25, wspace=0.1
         )
 
         # Enhanced plot layout with new return analysis row:
         ax1 = fig.add_subplot(gs[0, :])  # Price predictions with confidence bands
-        ax2 = fig.add_subplot(gs[1, 0])  # NEW: Return correlation scatter plot
-        ax3 = fig.add_subplot(gs[1, 1])  # NEW: Sign correlation bar plot
-        ax4 = fig.add_subplot(gs[2, 0])  # Volatility forecast accuracy
-        ax5 = fig.add_subplot(gs[2, 1])  # Return distribution analysis
-        ax6 = fig.add_subplot(gs[3, 0])  # Residuals with volatility context
-        ax7 = fig.add_subplot(gs[3, 1])  # ACF of residuals
-        ax8 = fig.add_subplot(gs[4, :])  # Volatility time series
+        ax2 = fig.add_subplot(gs[1, 0])  # Return correlation scatter plot
+        ax3 = fig.add_subplot(gs[1, 1])  # Sign correlation bar plot
+        ax4 = fig.add_subplot(gs[2, 0])  # Return distribution analysis
+        ax5 = fig.add_subplot(gs[2, 1])  # ACF of residuals
 
         fig.suptitle(
             f"{oracle.name} Analysis: {ticker} (applied {smoothing_window}-days rolling avg.)",
@@ -310,7 +301,7 @@ def oracle_diagnostics(
             ax3.text(
                 0.35,
                 0.95,
-                f"Sign Correlation: {sign_corr:.3f}\np-value: {sign_p:.3f}",
+                f"Sign Correlation: {sign_corr:.3f}\np-value: {sign_p:.5f}",
                 transform=ax3.transAxes,
                 fontsize=10,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
@@ -327,152 +318,124 @@ def oracle_diagnostics(
             # ax3.legend(fontsize=9)
             ax3.grid(True, alpha=0.3)
 
-        # ===== PLOT 4: Volatility forecast accuracy =====
-        # Compare predicted volatility vs realized volatility
+        # ===== PLOT 4: Return distribution analysis =====
         actual_returns_full = actual_df[ticker].pct_change().dropna()
-        realized_vol = (
-            actual_returns_full.rolling(window=5).std().shift(-2)
-        )  # Forward-looking realized vol
-        predicted_vol = vol_bands_df[ticker].dropna() / 100  # Convert to decimal
 
-        scatter_corr(
-            X=realized_vol,
-            Y=predicted_vol,
-            ax=ax4,
-            correlation_of="Volatility",
-            plot_title="Predicted vs Actual Volatility",
-            x_axis_label="Actual Volatility",
-            y_axis_label="Predicted Volatility"
-        )
-
-        # ===== PLOT 5: Return distribution analysis =====
         if len(actual_returns_full) > 10:
-            ax5.hist(
+            ax4.hist(
                 actual_returns_full,
-                bins=100,
+                bins=50,
                 alpha=0.7,
                 color="skyblue",
                 density=True,
                 label="Actual Returns",
             )
 
-            # Overlay normal distribution based on mean predicted volatility
-            mean_pred_vol = vol_bands_df[ticker].mean() / 100
-            x_norm = np.linspace(
-                actual_returns_full.min(), actual_returns_full.max(), 100
-            )
-            y_norm = (1 / (mean_pred_vol * np.sqrt(2 * np.pi))) * np.exp(
-                -0.5 * (x_norm / mean_pred_vol) ** 2
-            )
-            ax5.plot(x_norm, y_norm, "orange", linewidth=2, label="Normal (Pred Vol)")
+            # Fit skewed t-distribution to the actual returns
+            # We'll use scipy.stats.skewnorm and t distributions, or implement our own skewed-t
+            
+            def fit_skewed_t_distribution(returns_data):
+                """
+                Educational note: This function demonstrates maximum likelihood estimation concepts,
+                but we'll use scipy's built-in methods for reliability in the main code.
+                """
+                pass  # Keeping this as educational reference but not using it
+            
+            def fit_skewed_normal_alternative(returns_data):
+                """Educational reference function - replaced with direct scipy approach"""
+                pass  # Keeping this as educational reference but not using it
+            
+            # Use direct scipy.stats fitting which is more reliable and type-safe
+            try:
+                # Fit skewed normal distribution using scipy's robust built-in method
+                # This approach avoids the type checking issues while being more statistically sound
+                skew_params = stats.skewnorm.fit(actual_returns_full)
+                shape_fitted, loc_fitted, scale_fitted = skew_params
+                
+                # Generate x-axis points for smooth curve plotting
+                x_range = np.linspace(actual_returns_full.min(), actual_returns_full.max(), 200)
+                
+                # Calculate probability density values using the direct scipy.stats approach
+                # This avoids the frozen distribution type issues by using the class methods directly
+                y_skewed_normal = stats.skewnorm.pdf(x_range, a=shape_fitted, loc=loc_fitted, scale=scale_fitted)
+                
+                # Plot the fitted skewed normal distribution
+                ax4.plot(x_range, y_skewed_normal, "red", linewidth=2.5, label="Skewed Normal Fit", alpha=0.8)
+                
+                # Let's also try fitting a t-distribution for comparison (captures heavy tails)
+                t_params = stats.t.fit(actual_returns_full)
+                df_fitted, t_loc_fitted, t_scale_fitted = t_params
+                
+                # Calculate t-distribution density
+                y_t_dist = stats.t.pdf(x_range, df=df_fitted, loc=t_loc_fitted, scale=t_scale_fitted)
+                
+                # Plot the t-distribution as well for educational comparison
+                ax4.plot(x_range, y_t_dist, "purple", linewidth=2, linestyle="--", label="t-Distribution Fit", alpha=0.7)
+                
+                # Calculate and display diagnostic statistics to understand the fit quality
+                skewness_actual = stats.skew(actual_returns_full)
+                kurtosis_actual = stats.kurtosis(actual_returns_full)
+                
+                # Calculate goodness-of-fit measures using Kolmogorov-Smirnov test
+                # This tests how well our fitted distribution matches the actual data
+                ks_stat_skew, p_value_skew = stats.kstest(actual_returns_full, 
+                                                        lambda x: stats.skewnorm.cdf(x, a=shape_fitted, loc=loc_fitted, scale=scale_fitted))
+                ks_stat_t, p_value_t = stats.kstest(actual_returns_full,
+                                                lambda x: stats.t.cdf(x, df=df_fitted, loc=t_loc_fitted, scale=t_scale_fitted))
+                
+                # Print comprehensive diagnostic information
+                """
+                print(f"\n=== Distribution Fitting Analysis ===")
+                print(f"Actual Data Statistics:")
+                print(f"  Skewness: {skewness_actual:.4f} (negative = left tail longer)")
+                print(f"  Kurtosis: {kurtosis_actual:.4f} (>0 = heavier tails than normal)")
+                print(f"\nSkewed Normal Fit:")
+                print(f"  Shape (skewness): {shape_fitted:.4f}")
+                print(f"  Location: {loc_fitted:.6f}")
+                print(f"  Scale: {scale_fitted:.6f}")
+                print(f"  KS test p-value: {p_value_skew:.4f} (higher is better fit)")
+                print(f"\nt-Distribution Fit:")
+                print(f"  Degrees of freedom: {df_fitted:.2f} (lower = heavier tails)")
+                print(f"  Location: {t_loc_fitted:.6f}")
+                print(f"  Scale: {t_scale_fitted:.6f}")
+                print(f"  KS test p-value: {p_value_t:.4f} (higher is better fit)")
+                
+                # Determine which distribution fits better based on KS test
+                better_fit = "Skewed Normal" if p_value_skew > p_value_t else "t-Distribution"
+                print(f"\nBetter fit appears to be: {better_fit}")
+                """
+                
+            except Exception as e:
+                print(f"Distribution fitting encountered an issue: {e}")
+                print("Falling back to normal distribution overlay...")
+                
+                # Fallback to your original normal distribution approach
+                mean_pred_vol = vol_bands_df[ticker].mean() / 100
+                x_norm = np.linspace(actual_returns_full.min(), actual_returns_full.max(), 100)
+                y_norm = (1 / (mean_pred_vol * np.sqrt(2 * np.pi))) * np.exp(
+                    -0.5 * (x_norm / mean_pred_vol) ** 2
+                )
+                ax4.plot(x_norm, y_norm, "orange", linewidth=2, label="Normal (Pred Vol)")
 
-        ax5.set_title("Return Distribution vs Normal", fontsize=12, fontweight="bold")
-        ax5.set_xlabel("Returns", fontsize=10)
-        ax5.set_ylabel("Density", fontsize=10)
-        ax5.legend(fontsize=9)
-        ax5.grid(True, alpha=0.3)
+        ax4.set_title("Return Distribution with Better-Fitting Overlay", fontsize=12, fontweight="bold")
+        ax4.set_xlabel("Returns", fontsize=10)
+        ax4.set_ylabel("Density", fontsize=10)
+        ax4.legend(fontsize=9)
+        ax4.grid(True, alpha=0.3)
 
-        # ===== PLOT 6: Residuals with volatility context =====
+        # ============ PLOT 5: ACF of residuals ============
         residuals = actual_df[ticker] - preds_df[ticker]
-        standardized_residuals = residuals / vol_bands_df[ticker]
 
-        scatter = ax6.scatter(
-            residuals.index,
-            standardized_residuals,
-            c=vol_bands_df[ticker],
-            cmap="viridis",
-            s=25,
-            alpha=0.7,
-        )
-        ax6.axhline(y=0, color="black", linestyle="--", alpha=0.7, linewidth=1.5)
-        ax6.axhline(y=2, color="red", linestyle=":", alpha=0.7, label="±2σ bounds")
-        ax6.axhline(y=-2, color="red", linestyle=":", alpha=0.7)
-
-        # Gray out low data period
-        if low_data_period > 0:
-            y_min, y_max = ax6.get_ylim()
-            ax6.axvspan(
-                dates[0],
-                dates[min(low_data_period - 1, len(dates) - 1)],
-                alpha=0.3,
-                color="gray",
-            )
-
-        cbar = plt.colorbar(scatter, ax=ax6)
-        cbar.set_label("Predicted Volatility", fontsize=9)
-
-        ax6.set_title(
-            "Standardized Residuals (Volatility-Adjusted)",
-            fontsize=12,
-            fontweight="bold",
-        )
-        ax6.set_xlabel("Time", fontsize=10)
-        ax6.set_ylabel("Standardized Residuals", fontsize=10)
-        ax6.legend(fontsize=9)
-        ax6.grid(True, alpha=0.3)
-
-        # ===== PLOT 7: ACF of residuals =====
         if len(residuals.dropna()) > 10:
             plot_acf(
                 residuals.dropna(),
                 zero=False,
                 lags=min(40, len(residuals.dropna()) // 4),
-                ax=ax7,
+                ax=ax5,
             )
-            for line in ax7.lines:
+            for line in ax5.lines:
                 line.set_markersize(3)
-            ax7.set_title("Residual Autocorrelation", fontsize=12, fontweight="bold")
+            ax5.set_title("Residual Autocorrelation", fontsize=12, fontweight="bold")
 
-        # ===== PLOT 8: Volatility time series =====
-        ax8.plot(
-            pred_vol[ticker].index,
-            pred_vol[ticker],
-            color="red",
-            linewidth=2,
-            alpha=0.8,
-            label="Predicted Volatility (GARCH)",
-        )
-
-        # Add realized volatility if we can compute it
-        """
-        ax8.plot(
-            data_vol[ticker].index,
-            data_vol[ticker],
-            color="blue",
-            linewidth=1.5,
-            alpha=0.7,
-            label=f"Realized Volatility",
-        )
-        """
-        volatility_window = 5
-        if len(actual_returns_full) > volatility_window:
-            realized_vol_series = (
-                actual_returns_full.rolling(window=volatility_window).std() * 100
-            )
-            realized_vol_series.dropna(inplace=True)
-            ax8.plot(
-                realized_vol_series.index,
-                realized_vol_series,
-                color="blue",
-                linewidth=1.5,
-                alpha=0.7,
-                label=f"Realized Volatility (StDev: {volatility_window}-day)",
-            )
-
-        # Gray out low data period
-        if low_data_period > 0:
-            y_min, y_max = ax8.get_ylim()
-            ax8.axvspan(
-                dates[0],
-                dates[min(low_data_period - 1, len(dates) - 1)],
-                alpha=0.3,
-                color="gray",
-            )
-
-        ax8.set_title("Volatility Evolution", fontsize=12, fontweight="bold")
-        ax8.set_xlabel("Time", fontsize=11)
-        ax8.set_ylabel("Volatility (%)", fontsize=11)
-        ax8.legend(fontsize=10)
-        ax8.grid(True, alpha=0.3)
 
         plt.show()

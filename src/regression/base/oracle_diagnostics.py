@@ -47,7 +47,9 @@ def scatter_corr(
         )
 
         # draw the x-axis
-        ax.axhline(y=cast(float, np.mean(Y)), color="black", linewidth=1.0, linestyle="--")
+        ax.axhline(
+            y=cast(float, np.mean(Y)), color="black", linewidth=1.0, linestyle="--"
+        )
 
         # Calculate and display correlation
         ret_corr, ret_p = pearsonr(X_aligned, Y_aligned)
@@ -71,7 +73,8 @@ def oracle_diagnostics(
     oracle: "Oracle",
     data: dict[str, pd.Series],
     regress_window: int,
-    smoothing_window: int = 1,
+    smoothing_window_data: int = 1,
+    smoothing_window_pred: int = 1,
 ) -> None:
     """Generate enhanced comparison plots including variance bands and market factor analysis."""
     preds_df, vol_bands_df, market_factor = oracle.regress(data, window=regress_window)
@@ -82,11 +85,15 @@ def oracle_diagnostics(
     vol_bands_df = pd.DataFrame(vol_bands_df)
 
     # replace data and prediction by their rolling means over smoothing_window days
-    actual_df = actual_df.rolling(window=smoothing_window, min_periods=1).mean().dropna()
-    preds_df = preds_df.rolling(window=smoothing_window, min_periods=1).mean().dropna()
+    actual_df = (
+        actual_df.rolling(window=smoothing_window_data, min_periods=1).mean().dropna()
+    )
+    preds_df = (
+        preds_df.rolling(window=smoothing_window_pred, min_periods=1).mean().dropna()
+    )
 
     # is this how you change the variance when you take rolling average of the underlying series?
-    vol_bands_df = vol_bands_df / smoothing_window
+    vol_bands_df = vol_bands_df / smoothing_window_data
 
     dates = actual_df.index
     tickers = actual_df.columns
@@ -101,9 +108,7 @@ def oracle_diagnostics(
 
         # Create enhanced figure with additional row for return analysis
         fig = plt.figure(figsize=(18, 18))  # Increased height for extra row
-        gs = fig.add_gridspec(
-            3, 2, height_ratios=[1.5, 1, 1], hspace=0.25, wspace=0.1
-        )
+        gs = fig.add_gridspec(3, 2, height_ratios=[1.5, 1, 1], hspace=0.25, wspace=0.1)
 
         # Enhanced plot layout with new return analysis row:
         ax1 = fig.add_subplot(gs[0, :])  # Price predictions with confidence bands
@@ -113,7 +118,7 @@ def oracle_diagnostics(
         ax5 = fig.add_subplot(gs[2, 1])  # ACF of residuals
 
         fig.suptitle(
-            f"{oracle.name} Analysis: {ticker} (applied {smoothing_window}-days rolling avg.)",
+            f"{oracle.name} Analysis: {ticker} (applied data={smoothing_window_data}, pred={smoothing_window_pred}-days rolling avg.)",
             fontsize=18,
             fontweight="bold",
         )
@@ -333,56 +338,85 @@ def oracle_diagnostics(
 
             # Fit skewed t-distribution to the actual returns
             # We'll use scipy.stats.skewnorm and t distributions, or implement our own skewed-t
-            
+
             def fit_skewed_t_distribution(returns_data):
                 """
                 Educational note: This function demonstrates maximum likelihood estimation concepts,
                 but we'll use scipy's built-in methods for reliability in the main code.
                 """
                 pass  # Keeping this as educational reference but not using it
-            
+
             def fit_skewed_normal_alternative(returns_data):
                 """Educational reference function - replaced with direct scipy approach"""
                 pass  # Keeping this as educational reference but not using it
-            
+
             # Use direct scipy.stats fitting which is more reliable and type-safe
             try:
                 # Fit skewed normal distribution using scipy's robust built-in method
                 # This approach avoids the type checking issues while being more statistically sound
                 skew_params = stats.skewnorm.fit(actual_returns_full)
                 shape_fitted, loc_fitted, scale_fitted = skew_params
-                
+
                 # Generate x-axis points for smooth curve plotting
-                x_range = np.linspace(actual_returns_full.min(), actual_returns_full.max(), 200)
-                
+                x_range = np.linspace(
+                    actual_returns_full.min(), actual_returns_full.max(), 200
+                )
+
                 # Calculate probability density values using the direct scipy.stats approach
                 # This avoids the frozen distribution type issues by using the class methods directly
-                y_skewed_normal = stats.skewnorm.pdf(x_range, a=shape_fitted, loc=loc_fitted, scale=scale_fitted)
-                
+                y_skewed_normal = stats.skewnorm.pdf(
+                    x_range, a=shape_fitted, loc=loc_fitted, scale=scale_fitted
+                )
+
                 # Plot the fitted skewed normal distribution
-                ax4.plot(x_range, y_skewed_normal, "red", linewidth=2.5, label="Skewed Normal Fit", alpha=0.8)
-                
+                ax4.plot(
+                    x_range,
+                    y_skewed_normal,
+                    "red",
+                    linewidth=2.5,
+                    label="Skewed Normal Fit",
+                    alpha=0.8,
+                )
+
                 # Let's also try fitting a t-distribution for comparison (captures heavy tails)
                 t_params = stats.t.fit(actual_returns_full)
                 df_fitted, t_loc_fitted, t_scale_fitted = t_params
-                
+
                 # Calculate t-distribution density
-                y_t_dist = stats.t.pdf(x_range, df=df_fitted, loc=t_loc_fitted, scale=t_scale_fitted)
-                
+                y_t_dist = stats.t.pdf(
+                    x_range, df=df_fitted, loc=t_loc_fitted, scale=t_scale_fitted
+                )
+
                 # Plot the t-distribution as well for educational comparison
-                ax4.plot(x_range, y_t_dist, "purple", linewidth=2, linestyle="--", label="t-Distribution Fit", alpha=0.7)
-                
+                ax4.plot(
+                    x_range,
+                    y_t_dist,
+                    "purple",
+                    linewidth=2,
+                    linestyle="--",
+                    label="t-Distribution Fit",
+                    alpha=0.7,
+                )
+
                 # Calculate and display diagnostic statistics to understand the fit quality
                 skewness_actual = stats.skew(actual_returns_full)
                 kurtosis_actual = stats.kurtosis(actual_returns_full)
-                
+
                 # Calculate goodness-of-fit measures using Kolmogorov-Smirnov test
                 # This tests how well our fitted distribution matches the actual data
-                ks_stat_skew, p_value_skew = stats.kstest(actual_returns_full, 
-                                                        lambda x: stats.skewnorm.cdf(x, a=shape_fitted, loc=loc_fitted, scale=scale_fitted))
-                ks_stat_t, p_value_t = stats.kstest(actual_returns_full,
-                                                lambda x: stats.t.cdf(x, df=df_fitted, loc=t_loc_fitted, scale=t_scale_fitted))
-                
+                ks_stat_skew, p_value_skew = stats.kstest(
+                    actual_returns_full,
+                    lambda x: stats.skewnorm.cdf(
+                        x, a=shape_fitted, loc=loc_fitted, scale=scale_fitted
+                    ),
+                )
+                ks_stat_t, p_value_t = stats.kstest(
+                    actual_returns_full,
+                    lambda x: stats.t.cdf(
+                        x, df=df_fitted, loc=t_loc_fitted, scale=t_scale_fitted
+                    ),
+                )
+
                 # Print comprehensive diagnostic information
                 """
                 print(f"\n=== Distribution Fitting Analysis ===")
@@ -404,20 +438,28 @@ def oracle_diagnostics(
                 better_fit = "Skewed Normal" if p_value_skew > p_value_t else "t-Distribution"
                 print(f"\nBetter fit appears to be: {better_fit}")
                 """
-                
+
             except Exception as e:
                 print(f"Distribution fitting encountered an issue: {e}")
                 print("Falling back to normal distribution overlay...")
-                
+
                 # Fallback to your original normal distribution approach
                 mean_pred_vol = vol_bands_df[ticker].mean() / 100
-                x_norm = np.linspace(actual_returns_full.min(), actual_returns_full.max(), 100)
+                x_norm = np.linspace(
+                    actual_returns_full.min(), actual_returns_full.max(), 100
+                )
                 y_norm = (1 / (mean_pred_vol * np.sqrt(2 * np.pi))) * np.exp(
                     -0.5 * (x_norm / mean_pred_vol) ** 2
                 )
-                ax4.plot(x_norm, y_norm, "orange", linewidth=2, label="Normal (Pred Vol)")
+                ax4.plot(
+                    x_norm, y_norm, "orange", linewidth=2, label="Normal (Pred Vol)"
+                )
 
-        ax4.set_title("Return Distribution with Better-Fitting Overlay", fontsize=12, fontweight="bold")
+        ax4.set_title(
+            "Return Distribution with Better-Fitting Overlay",
+            fontsize=12,
+            fontweight="bold",
+        )
         ax4.set_xlabel("Returns", fontsize=10)
         ax4.set_ylabel("Density", fontsize=10)
         ax4.legend(fontsize=9)
@@ -436,6 +478,5 @@ def oracle_diagnostics(
             for line in ax5.lines:
                 line.set_markersize(3)
             ax5.set_title("Residual Autocorrelation", fontsize=12, fontweight="bold")
-
 
         plt.show()

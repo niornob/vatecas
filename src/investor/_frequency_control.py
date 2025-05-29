@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
-
+from scipy.special import expit
 
 
 # ========================
@@ -50,7 +50,7 @@ class ThresholdDecayController(TradeFrequencyController):
         period_length_days: int = 5,
         tau_max: float = 1.0,
         tau_min: float = 0.1,
-        decay: str = "linear",
+        bend: float = 1,
     ):
         """
         Initialize the threshold decay controller.
@@ -60,25 +60,18 @@ class ThresholdDecayController(TradeFrequencyController):
             period_length_days: Period length in trading days.
             tau_max: Maximum threshold immediately after a trade.
             tau_min: Minimum threshold after full decay.
-            decay: Type of decay, either 'linear' or 'exponential'.
+            bend: Controls the threshold curve from tau_max to tau_min. 
+                bend/time between period < 1e-2 => straight line
+                bend/time between period > 1e+1 => delta function
         """
         self.trades_per_period = trades_per_period
         self.period_length_days = period_length_days
         self.tau_max = tau_max
         self.tau_min = tau_min
-        self.decay = decay
-
-        if self.decay == "exponential" and self.tau_min <= 0:
-            raise ValueError("tau_min must be positive for exponential decay.")
+        self.bend = bend
 
         # Compute average inter-trade interval
         self.dt_avg = self.period_length_days / max(self.trades_per_period, 1)
-
-        # Compute decay constant for exponential decay
-        if self.decay == "exponential" and self.tau_min > 0:
-            self.lambda_ = -np.log(self.tau_min / self.tau_max) / self.dt_avg
-        else:
-            self.lambda_ = -float("inf")
 
     def _calculate_threshold(
         self, last_trade_time: pd.Timestamp, current_time: pd.Timestamp
@@ -96,13 +89,16 @@ class ThresholdDecayController(TradeFrequencyController):
         # Compute days since last trade
         delta = (current_time - last_trade_time) / pd.Timedelta(days=1)
 
-        if self.decay == "linear":
-            frac = min(delta / self.dt_avg, 1.0)
-            return self.tau_max - (self.tau_max - self.tau_min) * frac
-        else:  # exponential
-            return self.tau_min + (self.tau_max - self.tau_min) * np.exp(
-                -self.lambda_ * delta
-            )
+        d = self.dt_avg / 2
+
+        return np.clip(
+            (self.tau_max - self.tau_min)
+            * (expit(self.bend * (delta - d)) - expit(self.bend * d))
+            / (expit(- self.bend * d) - expit(self.bend * d))
+            + self.tau_min,
+            0,
+            1,
+        )
 
     def should_trade(
         self,

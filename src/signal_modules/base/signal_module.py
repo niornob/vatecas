@@ -36,7 +36,6 @@ class SignalResult:
     raw_predictions: np.ndarray  # Original predictions from Oracle
     smoothed_predictions: np.ndarray  # Predictions after smoothing
     volatility_adjustments: np.ndarray  # Volatility-based scaling factors
-    confidence_scores: np.ndarray  # Signal confidence based on various factors
     tickers: List[str]  # Ticker symbols in order
 
 
@@ -83,9 +82,9 @@ class MovingAverageSmoothing(SmoothingStrategy):
             len(predictions) >= window
         ), f"not enough predictions ({len(predictions)}) to apply {window}-days averaging."
 
-        truncated_predictions = pd.DataFrame(predictions).iloc[-window:]
+        averaged_predictions = pd.DataFrame(predictions).rolling(window=window, min_periods=1).mean()
 
-        return np.array(list(truncated_predictions.mean().values))
+        return averaged_predictions.values
 
 
 class VolatilityAdjuster:
@@ -178,7 +177,7 @@ class SignalModule:
         self.signal_strength_threshold = signal_strength_threshold
 
     def generate_signals(
-        self, data: Dict[str, pd.Series], past_predictions: Dict[str, pd.Series]
+        self, data: Dict[str, pd.Series], past_predictions: np.ndarray = np.ndarray([])
     ) -> SignalResult:
         """
         Generate trading signals from market data.
@@ -202,32 +201,39 @@ class SignalModule:
         asset_covariance = prediction_result.asset_covariance
         market_volatility = prediction_result.pc1_variance
 
+        if len(past_predictions) == 0:
+            data_df = pd.DataFrame(data)
+            assert len(data_df) > 1, "no past predictions provided and not enough data to predict today's price."
+            older_data = {tk: s[:-1] for tk, s in data.items()}
+            older_prediction = self.oracle.predict(older_data)
+            past_predictions = np.array([older_prediction.predictions])
+
         # Apply smoothing to predictions
-        preds_to_smooth = pd.DataFrame(past_predictions).values
+        preds_to_smooth = pd.DataFrame(past_predictions, columns=list(data.keys())).values
         preds_to_smooth = np.concat([preds_to_smooth, [raw_predictions]])
         smoothed_predictions = self.smoothing_strategy.smooth(
-            raw_predictions, min(len(preds_to_smooth), self.smoothing_window)
+            preds_to_smooth, min(len(preds_to_smooth), self.smoothing_window)
         )
+
+        #print(smoothed_predictions)
+
+        pred_returns = smoothed_predictions[-1] - smoothed_predictions[-2]
+
+        #print(pred_returns)
 
         # Apply volatility-based position sizing
         vol_adjusted_signals, vol_scaling = self.vol_adjuster.adjust_for_volatility(
-            smoothed_predictions, asset_covariance
+            pred_returns, asset_covariance
         )
 
         # Normalize signals to [-1, +1] range
         final_signals = self._normalize_signals(vol_adjusted_signals, market_volatility)
-
-        # Calculate confidence scores
-        confidence_scores = self._calculate_confidence(
-            raw_predictions, smoothed_predictions, vol_scaling, asset_covariance
-        )
 
         return SignalResult(
             signals=final_signals,
             raw_predictions=raw_predictions,
             smoothed_predictions=smoothed_predictions,
             volatility_adjustments=vol_scaling,
-            confidence_scores=confidence_scores,
             tickers=list(data.keys()),
         )
 
@@ -245,37 +251,3 @@ class SignalModule:
 
         return 2 * expit(signals * 4 / n ) - 1
 
-
-    def _calculate_confidence(
-        self,
-        raw_predictions: np.ndarray,
-        smoothed_predictions: np.ndarray,
-        vol_scaling: np.ndarray,
-        covariance: np.ndarray,
-    ) -> np.ndarray:
-        """
-        Calculate confidence scores for signals based on various factors.
-
-        Higher confidence indicates more reliable signals. Factors considered:
-        - Consistency between raw and smoothed predictions
-        - Volatility levels (lower vol -> higher confidence)
-        - Prediction magnitude (stronger predictions -> higher confidence)
-        """
-        # Consistency between raw and smoothed predictions
-        consistency = 1.0 - np.abs(raw_predictions - smoothed_predictions) / (
-            np.abs(raw_predictions) + 1e-6
-        )
-        consistency = np.clip(consistency, 0, 1)
-
-        # Volatility-based confidence (lower vol -> higher confidence)
-        vol_confidence = 1.0 / (1.0 + np.sqrt(np.diag(covariance)))
-
-        # Prediction strength confidence
-        strength_confidence = np.abs(smoothed_predictions) / (
-            np.max(np.abs(smoothed_predictions)) + 1e-6
-        )
-
-        # Combined confidence score
-        confidence = (consistency + vol_confidence + strength_confidence) / 3.0
-
-        return np.clip(confidence, 0, 1)

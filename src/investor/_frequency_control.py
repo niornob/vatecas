@@ -60,9 +60,10 @@ class ThresholdDecayController(TradeFrequencyController):
             period_length_days: Period length in trading days.
             tau_max: Maximum threshold immediately after a trade.
             tau_min: Minimum threshold after full decay.
-            bend: Controls the threshold curve from tau_max to tau_min. 
-                bend/time between period < 1e-2 => straight line
-                bend/time between period > 1e+1 => delta function
+            bend: Controls the threshold curve from tau_max to tau_min over 2 * (time between trades). 
+                the transition is the sharpest at (time between trades).
+                bend/(time between trades) < 1e-2 => straight line
+                bend/(time between trades) > 1e+1 => delta function
         """
         self.trades_per_period = trades_per_period
         self.period_length_days = period_length_days
@@ -89,12 +90,10 @@ class ThresholdDecayController(TradeFrequencyController):
         # Compute days since last trade
         delta = (current_time - last_trade_time) / pd.Timedelta(days=1)
 
-        d = self.dt_avg / 2
-
         return np.clip(
             (self.tau_max - self.tau_min)
-            * (expit(self.bend * (delta - d)) - expit(self.bend * d))
-            / (expit(- self.bend * d) - expit(self.bend * d))
+            * (expit(self.bend * (delta - self.dt_avg)) - expit(self.bend * self.dt_avg))
+            / (expit(- self.bend * self.dt_avg) - expit(self.bend * self.dt_avg))
             + self.tau_min,
             0,
             1,

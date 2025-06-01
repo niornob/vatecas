@@ -8,13 +8,8 @@ from typing import cast
 from scipy import stats
 from scipy.optimize import minimize
 
-import sys
-from pathlib import Path
-
-# Add project root to sys.path
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-from regression.base.oracle import Oracle
-from regression.volatility.GARCHpq import garch_series
+from .oracle import Oracle
+from signal_generator.volatility.GARCHpq import garch_series
 
 
 def scatter_corr(

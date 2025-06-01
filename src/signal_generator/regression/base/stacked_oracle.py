@@ -2,11 +2,6 @@ from typing import Optional, Dict, List, Tuple, cast, Literal
 import pandas as pd
 import numpy as np
 
-import sys
-from pathlib import Path
-
-# Add project root to sys.path
-sys.path.append(str(Path(__file__).resolve().parents[2]))
 from utils.denoise import wavelet_denoise
 from regression.base.oracle import Oracle
 

@@ -1,12 +1,12 @@
 vatecas/
 ├── config
-│   ├── assets.yaml
-│   └── portfolios.yaml
+│   └── assets.yaml
 ├── data
 ├── src
 │   ├── backtesting
 │   │   ├── __init__.py
-│   │   └── backtester.py
+│   │   ├── backtester.py
+│   │   └── backtester_buffer.py
 │   ├── investor
 │   │   ├── __init__.py
 │   │   ├── _frequency_control.py
@@ -19,23 +19,39 @@ vatecas/
 │   │   └── portfolios.yaml
 │   ├── recommender
 │   │   ├── portfolio
+│   │   │   ├── order_history.json
 │   │   │   ├── portfolio.json
+│   │   │   ├── portfolio_25_05_19.json
 │   │   │   └── recommendation.json
 │   │   ├── __init__.py
 │   │   └── recomender.py
-│   ├── signal_modules
+│   ├── signal_generator
+│   │   ├── regression
+│   │   │   ├── base
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── oracle.py
+│   │   │   │   ├── oracle_diagnostics.py
+│   │   │   │   ├── prediction_result.py
+│   │   │   │   └── stacked_oracle.py
+│   │   │   └── Kalman_filter.py
+│   │   ├── volatility
+│   │   │   ├── GARCH.py
+│   │   │   └── GARCHpq.py
 │   │   ├── __init__.py
 │   │   ├── base.py
 │   │   ├── Kalman.py
-│   │   ├── ma_crossover.py
+│   │   ├── signal_module.py
 │   │   └── signal_registry.py
 │   ├── utils
 │   │   ├── __init__.py
+│   │   ├── denoise.py
+│   │   ├── noise_test.py
+│   │   ├── synthetic.py
 │   │   └── visualizations.py
 │   └── data_loader_tiingo.py
 ├── .gitattributes
 ├── .gitignore
 ├── directory_map.txt
-├── environment.yml
+├── environment.yaml
 ├── map_directory.py
 └── requirements.txt

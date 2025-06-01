@@ -5,14 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from filterpy.kalman import UnscentedKalmanFilter, MerweScaledSigmaPoints
 
-import sys
-from pathlib import Path
 
-# Add project root to sys.path
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
-from regression.base.oracle import Oracle
-from utils.denoise import wavelet_denoise
+from .base.oracle import Oracle
 
 
 class KalmanFilter(Oracle):
@@ -69,6 +63,8 @@ class KalmanFilter(Oracle):
         series_lengths = [len(series) for series in data.values()]
         if len(set(series_lengths)) > 1:
             raise ValueError("All pandas Series in data must have the same length")
+        
+        #print(pd.DataFrame(data))
 
         # Convert dictionary of Series to numpy array
         # pd.DataFrame automatically aligns Series by index and creates columns
@@ -90,6 +86,7 @@ class KalmanFilter(Oracle):
             warmup_period=self.warmup_period,
         )
 
+
         return prediction
 
     def _create_and_apply_filter(
@@ -105,7 +102,7 @@ class KalmanFilter(Oracle):
         """Create and apply a UKF, returning last `history_length` predicted states."""
         m = values.shape[1]
 
-        def fx(x: np.ndarray, dt: float) -> np.ndarray:
+        def fx(x: np.ndarray, dt: float = 0) -> np.ndarray:
             return x * 1
 
         def hx(x: np.ndarray) -> np.ndarray:
@@ -118,7 +115,7 @@ class KalmanFilter(Oracle):
 
         # Initialization
         if len(values) > max(10, warmup_period):
-            ukf.x = values[-1].copy()
+            ukf.x = fx(values[-1].copy())
             recent_changes = np.diff(values[-min(20, len(values) - 1) :], axis=0)
             base_var = np.var(values, axis=0).mean()
             change_var = (
@@ -139,6 +136,7 @@ class KalmanFilter(Oracle):
             ukf.R = np.eye(m) * recent_obs_noise * obs_noise_scale
         else:
             ukf.R = np.eye(m) * base_obs_noise * obs_noise_scale
+            recent_obs_noise = base_obs_noise
         ukf.Q = np.eye(m) * recent_obs_noise * process_noise
 
         # Warmup

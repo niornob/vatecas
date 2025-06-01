@@ -89,20 +89,6 @@ class OrderGenerator:
             Dictionary of ticker to Order objects.
         """
 
-        # Sell a lot in a weak market.
-        """
-        largest_signal = max(s.value for s in signals.values())
-
-        if largest_signal < self.WEAK_MARKET_THRESHOLD:
-            print("panic", list(signals.values())[0].timestamp)
-            for tk, s in signals.items():
-                signals[tk].value = self._push_toward_sell(
-                    s.value,
-                    threshold=self.WEAK_MARKET_THRESHOLD,
-                    falloff=self.PANIC_SELL_FALLOFF,
-                )
-        """
-
         # Partition signals
         sells = [(tk, s) for tk, s in signals.items() if s.value < 0]
         buys = [(tk, s) for tk, s in signals.items() if s.value >= 0]
@@ -131,26 +117,7 @@ class OrderGenerator:
             + self.commission
             for tk, s in strong
         ]
-        """
-        strong_data = [
-            [
-                tk,
-                s.value,
-                s.price,
-                cash,
-                positions.get(tk, Position(tk)).value(s.price),
-                self.max_position_size,
-                self.sizing_model.size_position(
-                    s.value,
-                    s.price,
-                    cash,
-                    positions.get(tk, Position(tk)).value(s.price),
-                    self.max_position_size,
-                ),
-            ]
-            for tk, s in strong
-        ]
-        """
+
         required_strong_cash = sum(strong_values)
 
         total_available = cash + potential_sell_cash

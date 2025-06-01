@@ -3,15 +3,10 @@ from typing import Optional, Dict, List, Tuple, cast, Literal
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+import time
 
-import sys
-from pathlib import Path
-
-# Add project root to sys.path
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
-from regression.base.prediction_result import PredictionResult
-from regression.volatility.GARCH import GARCH
+from .prediction_result import PredictionResult
+from signal_generator.volatility.GARCH import GARCH
 
 
 class Oracle(ABC):
@@ -163,6 +158,7 @@ class Oracle(ABC):
 
         # Rolling window prediction with variance
         for i in tqdm(range(low_data_period, pred_len), desc=f"{self.name} is regressing"):
+            #t0 = time.perf_counter()
             # Extract historical window
             window_start = max(0, i - window)
             sliced_df = data_df.iloc[window_start:i]
@@ -190,6 +186,9 @@ class Oracle(ABC):
 
             except Exception as e:
                 raise RuntimeError(f"Prediction failed at step {i}: {e}")
+            #t1 = time.perf_counter()
+
+            #print(f"predict in regression: {t1-t0}")
 
         return (
             {ticker: pred[ticker] for ticker in tickers},

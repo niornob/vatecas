@@ -51,7 +51,6 @@ class PortfolioRegistry:
             period_length_days=cfg.get("period_length_days", 5),
             tau_max=cfg.get("tau_max", 1.0),
             tau_min=cfg.get("tau_min", 0.1),
-            decay=cfg.get("decay", "linear"),
         )
 
         return manager

@@ -5,12 +5,7 @@ from arch import arch_model
 from sklearn.decomposition import PCA
 import warnings
 
-import sys
-from pathlib import Path
-
-# Add src to sys.path
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-from regression.volatility.GARCHpq import garch_pq
+from .GARCHpq import garch_pq
 
 
 def GARCH(

@@ -23,7 +23,7 @@ RECOMMENDATION_PATH = BASE_DIR / "portfolio" / "recommendation.json"
 from investor.portfolio_manager import PortfolioManager
 from investor.atomic_types import Signal, Order, Position
 from investor._sizing import FixedFractionalSizing
-from signal_modules.signal_registry import SignalRegistry
+from signal_generator.signal_registry import SignalRegistry
 
 
 def load_portfolio(path: Path) -> tuple[PortfolioManager, list[str]]:

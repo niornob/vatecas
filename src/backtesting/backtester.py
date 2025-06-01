@@ -9,8 +9,7 @@ from datetime import datetime
 import warnings
 
 from investor.portfolio_manager import PortfolioManager
-from signal_modules.base import SignalModule
-from utils.denoise import wavelet_denoise
+from signal_generator.signal_module import SignalModule
 from utils.visualizations import (
     _equity_vs_benchmark,
     _equity_vs_benchmark_marked,
@@ -29,9 +28,9 @@ class BacktestEngine:
     def __init__(
         self,
         data: Mapping[str, pd.DataFrame],
-        modules_weights: Sequence[Tuple[SignalModule, float]],
+        signal_module: SignalModule,
         manager: PortfolioManager,
-        lookback_days: int = 50,
+        lookback_days: int = 40,
     ):
         """
         Initialize the backtesting engine.
@@ -42,8 +41,10 @@ class BacktestEngine:
             manager: PortfolioManager instance to handle portfolio operations
             lookback_days: Number of historical days needed for signal generation
         """
+        self.signal_module = signal_module
+
         # Validate inputs
-        self._validate_inputs(data, modules_weights, manager, lookback_days)
+        self._validate_inputs(data, manager, lookback_days)
 
         # Store original data and create deep copies to avoid mutation
         self.raw_data = data
@@ -52,9 +53,6 @@ class BacktestEngine:
         # Create unified timeline and align data
         self._create_unified_timeline()
         self._align_data_to_timeline()
-
-        # Process and normalize module weights
-        self.modules_weights = self._normalize_weights(modules_weights)
 
         # Set up timeline constraints
         self.lookback_period = pd.Timedelta(days=lookback_days)
@@ -67,13 +65,10 @@ class BacktestEngine:
         }
         self.execution_log: List[Dict] = []  # Track execution details for debugging
 
-    def _validate_inputs(self, data, modules_weights, manager, lookback_days):
+    def _validate_inputs(self, data, manager, lookback_days):
         """Validate all inputs to catch errors early."""
         if not data:
             raise ValueError("Data dictionary cannot be empty")
-
-        if not modules_weights:
-            raise ValueError("Must provide at least one signal module")
 
         if lookback_days < 1:
             raise ValueError("Lookback days must be positive")
@@ -86,10 +81,6 @@ class BacktestEngine:
                 raise ValueError(
                     f"Ticker {ticker} missing required columns: {missing_cols}"
                 )
-
-        # Validate weights
-        if not all(isinstance(w, (int, float)) and w >= 0 for _, w in modules_weights):
-            raise ValueError("All module weights must be non-negative numbers")
 
     def _create_unified_timeline(self):
         """Create a unified timeline from all ticker data."""
@@ -118,21 +109,6 @@ class BacktestEngine:
 
             self.aligned[ticker] = aligned_df
 
-    def _normalize_weights(self, modules_weights):
-        """Normalize module weights to sum to 1."""
-        # Filter out zero weights
-        non_zero_weights = [
-            (module, weight) for module, weight in modules_weights if weight > 0
-        ]
-
-        if not non_zero_weights:
-            warnings.warn("All module weights are zero. No signals will be generated.")
-            return []
-
-        # Normalize weights to sum to 1
-        total_weight = sum(weight for _, weight in non_zero_weights)
-        return [(module, weight / total_weight) for module, weight in non_zero_weights]
-
     def _setup_trading_timeline(self, manager):
         """Set up the trading timeline based on portfolio initial time."""
         initial_time = manager.portfolio.initial_time
@@ -158,21 +134,25 @@ class BacktestEngine:
             Dictionary containing backtest results and metadata
         """
 
-        # Initialize price prediction buffer for modules that need it
-        price_buffer = deque(maxlen=3)
-
         print(f"Starting backtest for {len(self.trading_timeline)} trading days...")
+
+        assert self.lookback_period.days < len(
+            self.trading_timeline
+        ), f"not enough data ({len(self.trading_timeline)}) for lookback_period ({self.lookback_period.days} days)."
 
         for today in tqdm(self.trading_timeline, desc="Backtesting"):
             try:
-                # Generate signals based on data up to yesterday
-                signals, predicted_prices = self._generate_daily_signals(
-                    today, price_buffer
-                )
+                yesterday = today - pd.Timedelta(days=1)
+                historical_data, enough_data = self._prepare_historical_data(yesterday)
 
-                # Update price buffer with predictions
-                if predicted_prices:
-                    price_buffer.append(np.array(list(predicted_prices.values())))
+                if not enough_data:
+                    #print(f"{today}: not enough historical data. Continuing...")
+                    continue
+
+                # Generate signals based on data up to yesterday
+                signals, predicted_prices = self._combine_module_signals(
+                    historical_data
+                )
 
                 # Store signals for analysis
                 self._record_signals(signals, today)
@@ -191,78 +171,41 @@ class BacktestEngine:
 
         return
 
-    def _generate_daily_signals(self, today, price_buffer):
-        """Generate trading signals for a given day."""
-        yesterday = today - pd.Timedelta(days=1)
-
-        # Prepare historical data (no look-ahead bias)
-        historical_data = self._prepare_historical_data(yesterday)
-
-        # Apply denoising to price data
-        denoised_data = self._apply_denoising(historical_data)
-
-        # Combine signals from all modules
-        return self._combine_module_signals(denoised_data, price_buffer)
-
     def _prepare_historical_data(self, cutoff_date):
-        """Prepare historical data up to the cutoff date."""
+        """
+        Prepare historical data up to the cutoff date.
+        Also returns a bool value indicating whether there is enough historical data
+        for the lookback_period.
+        """
         lookback_start = cutoff_date - self.lookback_period
 
         historical_data = {}
         for ticker, df in self.aligned.items():
             # Get data from lookback_start to cutoff_date (inclusive)
-            mask = (df.index >= lookback_start) & (df.index <= cutoff_date)
-            historical_data[ticker] = df.loc[mask, ["adjClose"]].copy()
+            mask =  df.index <= cutoff_date
+            if sum(mask) < self.lookback_period.days:
+                return {}, False
+            mask = mask & (df.index >= lookback_start)
+            historical_data[ticker] = df.loc[mask, "adjClose"].copy()
 
-        return historical_data
+        return historical_data, True
 
-    def _apply_denoising(self, data):
-        """Apply wavelet denoising to price data."""
-        denoised_data = {}
-        for ticker, df in data.items():
-            if not df.empty and len(df) > 1:  # Need at least 2 points for denoising
-                denoised_df = df.copy()
-                try:
-                    denoised_df["adjClose"] = wavelet_denoise(
-                        df["adjClose"],
-                        wavelet="db20",
-                        level=None,
-                        threshold_method="soft",
-                    )
-                except Exception as e:
-                    warnings.warn(f"Denoising failed for {ticker}: {str(e)}")
-                    # Keep original data if denoising fails
-                denoised_data[ticker] = denoised_df
-            else:
-                denoised_data[ticker] = df
-
-        return denoised_data
-
-    def _combine_module_signals(self, data, price_buffer):
+    def _combine_module_signals(self, data):
         """Combine signals from all modules using weighted average."""
         raw_signals = {}
         predicted_prices = {}
 
-        for module, weight in self.modules_weights:
-            try:
-                # Generate signals and price predictions from this module
-                module_signals, module_prices = module.generate_signals(
-                    data, price_buffer
-                )
+        # Generate signals and price predictions from this module
 
-                # Accumulate weighted signals
-                for ticker, signal in module_signals.items():
-                    # Convert signal to [-1, 1] range and apply weight
-                    normalized_signal = (2 * signal - 1) * weight
-                    raw_signals.setdefault(ticker, []).append(normalized_signal)
+        signal = self.signal_module.generate_signals(data)
 
-                # Accumulate weighted price predictions
-                for ticker, price in module_prices.items():
-                    predicted_prices.setdefault(ticker, []).append(price * weight)
+        # Accumulate weighted signals
+        for ticker, sig in zip(signal.tickers, signal.signals):
+            raw_signals.setdefault(ticker, []).append(sig)
 
-            except Exception as e:
-                warnings.warn(f"Module {module.__class__.__name__} failed: {str(e)}")
-                continue
+        # Accumulate weighted price predictions
+        for ticker, price in zip(signal.tickers, signal.raw_predictions):
+            predicted_prices.setdefault(ticker, []).append(price)
 
         # Sum up weighted signals and predictions
         final_signals = {
@@ -348,13 +291,13 @@ class BacktestEngine:
                 "total_trading_days": len(self.trading_timeline),
                 "successful_executions": successful_executions,
                 "errors": errors,
-                "signal_modules": [
-                    module.__class__.__name__ for module, _ in self.modules_weights
-                ],
             },
         }
 
-    # Plotting methods
+    # ====================================================================
+    #                        Plotting methods
+    # ====================================================================
+
     def plot_signals(
         self,
         tickers: Optional[List[str]] = None,

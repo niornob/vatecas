@@ -32,7 +32,6 @@ class PortfolioManager:
         period_length_days: int = 5,
         tau_max: float = 1.0,
         tau_min: float = 0.1,
-        decay: str = "linear",
     ):
         """
         Initialize the portfolio manager.
@@ -50,17 +49,16 @@ class PortfolioManager:
             decay: Type of decay, either 'linear' or 'exponential'.
         """
         # Create components
-        frequency_controller = ThresholdDecayController(
+        self.frequency_controller = ThresholdDecayController(
             trades_per_period=trades_per_period,
             period_length_days=period_length_days,
             tau_max=tau_max,
             tau_min=tau_min,
-            decay=decay,
         )
 
         order_generator = OrderGenerator(
             sizing_model=sizing_model,
-            frequency_controller=frequency_controller,
+            frequency_controller=self.frequency_controller,
             commission=commission,
             slippage=slippage,
             max_position_size=max_position_size,
@@ -189,7 +187,6 @@ def create_portfolio(
         sizing_model=sizing_model,
         trades_per_period=trades_per_period,
         period_length_days=period_length_days,
-        decay=decay,
         tau_max=tau_max,
         tau_min=tau_min,
     )

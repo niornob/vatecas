@@ -50,7 +50,7 @@ class ThresholdDecayController(TradeFrequencyController):
         period_length_days: int = 5,
         tau_max: float = 1.0,
         tau_min: float = 0.1,
-        bend: float = 1,
+        bend: float = 2,
     ):
         """
         Initialize the threshold decay controller.

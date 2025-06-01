@@ -3,8 +3,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
-import pickle
-import os
+import numpy as np
 
 # Determine base directory (directory of this script)
 BASE_DIR = Path(__file__).resolve().parent
@@ -23,7 +22,8 @@ RECOMMENDATION_PATH = BASE_DIR / "portfolio" / "recommendation.json"
 from investor.portfolio_manager import PortfolioManager
 from investor.atomic_types import Signal, Order, Position
 from investor._sizing import FixedFractionalSizing
-from signal_generator.signal_registry import SignalRegistry
+from signal_generator.signal_module import SignalModule
+from signal_generator.regression.Kalman_filter import KalmanFilter
 
 
 def load_portfolio(path: Path) -> tuple[PortfolioManager, list[str]]:
@@ -101,14 +101,33 @@ def generate_recommendations(
     """
     Generate trade recommendations for each ticker using provided historical DataFrames.
     """
-    len_history = 50
-    data = {tk: df.iloc[-len_history:] for tk, df in data.items() if tk in universe}
+    len_history = 40
+    assert all(
+        np.array([len(df) >= len_history for df in data.values()])
+    ), f"not enough data for lookback period ({len_history})"
+
+    all_dates = set()
+    for df in data.values():
+        all_dates.update(df.index)
+
+    timeline = pd.DatetimeIndex(sorted(all_dates))
+
+    data_aligned = {}
+    for tk, df in data.items():
+        df_aligned = df.reindex(timeline)
+        df_aligned = df_aligned.ffill().bfill().fillna(0)
+
+        data_aligned[tk] = df_aligned
+
+    closing_data: dict[str, pd.Series] = {
+        tk: df.iloc[-len_history:]["adjClose"]
+        for tk, df in data_aligned.items()
+        if tk in universe
+    }
 
     # Prepare price map from the latest adjClose
-    price_map = {
-        tk: df["adjClose"].iloc[-1]
-        for tk, df in data.items()
-        if "adjClose" in df.columns and not df.empty
+    price_map: dict[str, float] = {
+        tk: series.iloc[-1] for tk, series in closing_data.items()
     }
 
     # Instantiate and run signal module
@@ -116,25 +135,13 @@ def generate_recommendations(
     completely empirically, low process_noise and high observation_noise_scale
     produces high gain. so keep it as it is until an explanation is found.
     """
-    signal_registry = SignalRegistry()
-    model = signal_registry.get("Kalman")(
-        params={
-            "process_noise": 1e-3,
-            "observation_noise_scale": 1e+3,
-        }
-    )
+    regressor = KalmanFilter(process_noise=1e3, obs_noise_scale=1e-3)
+    model = SignalModule(oracle=regressor, smoothing_window=1, market_vol_target=5)
 
-    raw_signals: dict[str, float] = model.generate_signals(data)
-    confidences = {tk: 2 * sig - 1 for tk, sig in raw_signals.items()}
-    confidences = dict(
-        sorted(
-            confidences.items(),
-            key=lambda kv: (kv[1] >= 0, -kv[1] if kv[1] >= 0 else kv[1]),
-        )
-    )
+    raw_signals = model.generate_signals(closing_data)
     signals: dict[str, Signal] = {
         tk: Signal(ticker=tk, value=sig, price=price_map[tk], timestamp=current_time)
-        for tk, sig in confidences.items()
+        for tk, sig in zip(raw_signals.tickers, raw_signals.signals)
     }
 
     recs = manager.portfolio.order_generator.generate_orders(
@@ -154,25 +161,19 @@ def main():
     # Load market data from Parquet files
     data = load_data(DATA_DIR, universe=universe)
 
-    timeline = pd.DatetimeIndex(
-        pd.to_datetime(sorted(set().union(*[df.index for df in data.values()])))
-    )
-
     """
         L is the maximum number of past days, from which historica data is used to make
         signals at preset time. its minimum value depends on the type of signal generator.
         for Kalman
         L >= max(minimum num of assets in the universe, process_window (20 by default))
     """
-    L = 1000
-    aligned = {tk: df.reindex(timeline).ffill() for tk, df in data.items()}
 
     # Execution timestamp (UTC)
     now = pd.Timestamp(datetime.now(timezone.utc))
 
     # Generate recommendations using in-memory data
     orders = generate_recommendations(
-        manager=manager, universe=universe, data=aligned, current_time=now
+        manager=manager, universe=universe, data=data, current_time=now
     )
 
     recs_with_closing_price = {

@@ -5,8 +5,7 @@ vatecas/
 ├── src
 │   ├── backtesting
 │   │   ├── __init__.py
-│   │   ├── backtester.py
-│   │   └── backtester_buffer.py
+│   │   └── backtester.py
 │   ├── investor
 │   │   ├── __init__.py
 │   │   ├── _frequency_control.py
@@ -33,15 +32,17 @@ vatecas/
 │   │   │   │   ├── oracle_diagnostics.py
 │   │   │   │   ├── prediction_result.py
 │   │   │   │   └── stacked_oracle.py
+│   │   │   ├── __init__.py
 │   │   │   └── Kalman_filter.py
 │   │   ├── volatility
+│   │   │   ├── __init__.py
 │   │   │   ├── GARCH.py
 │   │   │   └── GARCHpq.py
 │   │   ├── __init__.py
-│   │   ├── base.py
-│   │   ├── Kalman.py
+│   │   ├── signal_diagnostics.py
+│   │   ├── signal_diagnostics_utils.py
 │   │   ├── signal_module.py
-│   │   └── signal_registry.py
+│   │   └── volatility_adjustor.py
 │   ├── utils
 │   │   ├── __init__.py
 │   │   ├── denoise.py

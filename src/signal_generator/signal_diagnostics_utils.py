@@ -14,9 +14,9 @@ def create_signal_colormap() -> LinearSegmentedColormap:
         "red",
         "lightcoral",
         "white",
-        "lightgreen",
-        "green",
-        "darkgreen",
+        "lightsteelblue",
+        "blue",
+        "darkblue",
     ]
     return LinearSegmentedColormap.from_list("signal_strength", colors, N=100)
 
@@ -73,8 +73,8 @@ def plot_ticker_with_heatmap(
     )
 
     # 3) Overlay actual price (black) and predicted price (blue)
-    ax.plot(range(n), actual_prices, color="black", linewidth=1, alpha=0.9, label="Actual Price")
-    ax.plot(range(n), predicted_prices, color="blue", linewidth=1, alpha=0.9, linestyle="-", label="Predicted Price")
+    ax.plot(range(n), actual_prices, color="black", linewidth=1.5, alpha=0.9, label="Actual Price")
+    ax.plot(range(n), predicted_prices, color="orange", linewidth=1.5, alpha=0.9, linestyle="-", label="Predicted Price")
 
     # 4) Format x‐axis using helper
     format_axes_dates(ax, dates)

@@ -140,19 +140,29 @@ class BacktestEngine:
             self.trading_timeline
         ), f"not enough data ({len(self.trading_timeline)}) for lookback_period ({self.lookback_period.days} days)."
 
+        past_predictions: deque[np.ndarray] = deque(
+            [], maxlen=self.signal_module.smoothing_window
+        )
+
         for today in tqdm(self.trading_timeline, desc="Backtesting"):
             try:
                 yesterday = today - pd.Timedelta(days=1)
                 historical_data, enough_data = self._prepare_historical_data(yesterday)
 
                 if not enough_data:
-                    #print(f"{today}: not enough historical data. Continuing...")
+                    # print(f"{today}: not enough historical data. Continuing...")
                     continue
 
                 # Generate signals based on data up to yesterday
-                signals, predicted_prices = self._combine_module_signals(
-                    historical_data
-                )
+                if len(past_predictions) == self.signal_module.smoothing_window:
+                    signal = self.signal_module.generate_signals(
+                        data=historical_data, past_predictions=past_predictions[0]
+                    )
+                else:
+                    signal = self.signal_module.generate_signals(data=historical_data)
+                
+                signals = {tk: sig for tk, sig in zip(signal.tickers, signal.signals)}
+                past_predictions.append(signal.raw_predictions.copy())
 
                 # Store signals for analysis
                 self._record_signals(signals, today)
@@ -182,40 +192,13 @@ class BacktestEngine:
         historical_data = {}
         for ticker, df in self.aligned.items():
             # Get data from lookback_start to cutoff_date (inclusive)
-            mask =  df.index <= cutoff_date
+            mask = df.index <= cutoff_date
             if sum(mask) < self.lookback_period.days:
                 return {}, False
             mask = mask & (df.index >= lookback_start)
             historical_data[ticker] = df.loc[mask, "adjClose"].copy()
 
         return historical_data, True
-
-    def _combine_module_signals(self, data):
-        """Combine signals from all modules using weighted average."""
-        raw_signals = {}
-        predicted_prices = {}
-
-        # Generate signals and price predictions from this module
-
-        signal = self.signal_module.generate_signals(data)
-
-        # Accumulate weighted signals
-        for ticker, sig in zip(signal.tickers, signal.signals):
-            raw_signals.setdefault(ticker, []).append(sig)
-
-        # Accumulate weighted price predictions
-        for ticker, price in zip(signal.tickers, signal.raw_predictions):
-            predicted_prices.setdefault(ticker, []).append(price)
-
-        # Sum up weighted signals and predictions
-        final_signals = {
-            ticker: sum(signals) for ticker, signals in raw_signals.items()
-        }
-        final_prices = {
-            ticker: sum(prices) for ticker, prices in predicted_prices.items()
-        }
-
-        return final_signals, final_prices
 
     def _record_signals(self, signals, date):
         """Record generated signals for later analysis."""

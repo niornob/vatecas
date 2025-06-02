@@ -85,7 +85,7 @@ class Oracle(ABC):
         garch_params = {
             "vol": "GARCH",
             "p": 1,
-            "q": 2,
+            "q": 1,
             "distribution": "normal",
             "rescale": True,
             "mean": "zero",

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, List
+from collections import deque
 
 from signal_generator.signal_module import SignalModule, SignalResult
 from signal_generator.signal_diagnostics_utils import (
@@ -26,7 +27,6 @@ class SignalDiagnostics:
         self,
         signal_module: SignalModule,
         lookback: int = 40,
-        smoothing_window: int = 1,
     ):
         """
         Args:
@@ -36,7 +36,7 @@ class SignalDiagnostics:
         """
         self.signal_module = signal_module
         self.lookback = lookback
-        self.smoothing_window = smoothing_window
+        self.smoothing_window = signal_module.smoothing_window
 
     def run(self, data: Dict[str, pd.Series]) -> None:
         """
@@ -71,7 +71,11 @@ class SignalDiagnostics:
         predictions_over_time: List[np.ndarray] = []
         dates_with_signals: List[pd.Timestamp] = []
 
-        for i in tqdm(range(self.lookback, len(shared_timeline)), desc="Processing timeline"):
+        past_predictions: deque[np.ndarray] = deque([], maxlen=self.smoothing_window)
+
+        for i in tqdm(
+            range(self.lookback, len(shared_timeline)), desc="Processing timeline"
+        ):
             current_date = shared_timeline[i]
 
             # 3a) Build historical NumPy arrays for each ticker
@@ -81,7 +85,19 @@ class SignalDiagnostics:
 
             # 3b) Generate signals
             try:
-                sig_res: SignalResult = self.signal_module.generate_signals(hist_data_numpy)
+                if len(past_predictions) == self.smoothing_window:
+                    #print(past_predictions)
+                    sig_res: SignalResult = self.signal_module.generate_signals(
+                        data=hist_data_numpy, 
+                        past_predictions=past_predictions[0]
+                    )
+                    #print(sig_res.raw_predictions)
+                else:
+                    sig_res: SignalResult = self.signal_module.generate_signals(
+                        data=hist_data_numpy
+                    )
+                past_predictions.append(sig_res.raw_predictions.copy())
+                #print(past_predictions)
                 signals_over_time.append(sig_res.signals.copy())
                 predictions_over_time.append(sig_res.raw_predictions.copy())
                 dates_with_signals.append(current_date)
@@ -91,7 +107,9 @@ class SignalDiagnostics:
                 continue
 
         if not signals_over_time:
-            raise RuntimeError("No signals could be generated for any date in the timeline.")
+            raise RuntimeError(
+                "No signals could be generated for any date in the timeline."
+            )
 
         # 4) Convert to arrays (n_dates × n_tickers)
         signals_matrix = np.vstack(signals_over_time)
@@ -103,7 +121,9 @@ class SignalDiagnostics:
         )
 
         # 6) Print summary stats
-        self._print_summary_statistics(data, tickers, dates_with_signals, signals_matrix, predictions_matrix)
+        self._print_summary_statistics(
+            data, tickers, dates_with_signals, signals_matrix, predictions_matrix
+        )
 
     def _find_shared_timeline(self, data: Dict[str, pd.Series]) -> List[pd.Timestamp]:
         """
@@ -119,15 +139,15 @@ class SignalDiagnostics:
         tickers: List[str],
         index_positions: Dict[str, Dict[pd.Timestamp, int]],
         shared_timeline: List[pd.Timestamp],
-        i: int
+        i: int,
     ) -> Dict[str, pd.Series]:
         """
         For each ticker, produce a NumPy array of all prices up to (but not including) shared_timeline[i].
         Uses integer‐based .iloc slicing internally to avoid repeated .loc[list_of_timestamps] overhead.
         """
         hist_arrays: Dict[str, pd.Series] = {}
-        start_idx = max(0, i - self.lookback)   # earliest position in shared_timeline
-        end_idx = i - 1                         # last date index to include
+        start_idx = max(0, i - self.lookback)  # earliest position in shared_timeline
+        end_idx = i - 1  # last date index to include
 
         # Loop over tickers
         for ticker in tickers:
@@ -140,7 +160,9 @@ class SignalDiagnostics:
 
             # 2) slice the underlying Pandas Series by iloc, then convert to NumPy array
             series = data[ticker]
-            hist_slice = series.iloc[start_pos : end_pos + 1]   # array of length ≤ lookback
+            hist_slice = series.iloc[
+                start_pos : end_pos + 1
+            ]  # array of length ≤ lookback
             hist_arrays[ticker] = hist_slice
 
         return hist_arrays
@@ -151,7 +173,7 @@ class SignalDiagnostics:
         tickers: List[str],
         dates_with_signals: List[pd.Timestamp],
         signals_matrix: np.ndarray,
-        predictions_matrix: np.ndarray
+        predictions_matrix: np.ndarray,
     ) -> None:
         """
         For each ticker, delegate to a helper that builds a single panel (heatmap + lines + stats box).
@@ -164,8 +186,13 @@ class SignalDiagnostics:
         n_rows = (n_tickers + n_cols - 1) // n_cols
 
         import matplotlib.pyplot as plt
+
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 4 * n_rows))
-        fig.suptitle("Price Movements with Signal‐Strength Overlays and Predictions", fontsize=16, fontweight="bold")
+        fig.suptitle(
+            "Price Movements with Signal‐Strength Overlays and Predictions",
+            fontsize=16,
+            fontweight="bold",
+        )
 
         # Flatten axes array
         if n_tickers == 1:
@@ -179,7 +206,7 @@ class SignalDiagnostics:
         for idx, ticker in enumerate(tickers):
             ax = axes[idx]
             # 1) Grab actual prices at each date_with_signals
-            actual_prices = [ data[ticker].loc[dt] for dt in dates_with_signals ]
+            actual_prices = [data[ticker].loc[dt] for dt in dates_with_signals]
             # 2) Grab predicted prices (vector) from predictions_matrix[:, idx]
             predicted_prices = predictions_matrix[:, idx]
             # 3) Grab signals (vector) from signals_matrix[:, idx]
@@ -191,7 +218,7 @@ class SignalDiagnostics:
                 actual_prices,
                 predicted_prices,
                 ticker_signals,
-                cmap
+                cmap,
             )
             ax.set_title(f"{ticker}", fontweight="bold")
 
@@ -200,7 +227,7 @@ class SignalDiagnostics:
             axes[idx].set_visible(False)
 
         plt.tight_layout()
-        plt.subplots_adjust(right=0.9)   # make room for colorbar if needed
+        plt.subplots_adjust(right=0.9)  # make room for colorbar if needed
         plt.show()
 
     def _print_summary_statistics(
@@ -209,7 +236,7 @@ class SignalDiagnostics:
         tickers: List[str],
         dates_with_signals: List[pd.Timestamp],
         signals_matrix: np.ndarray,
-        predictions_matrix: np.ndarray
+        predictions_matrix: np.ndarray,
     ) -> None:
         """
         Prints summary to stdout:
@@ -229,15 +256,17 @@ class SignalDiagnostics:
         print("-" * 40)
         for i, ticker in enumerate(tickers):
             sigs = signals_matrix[:, i]
-            print(f"{ticker:>8}: μ={np.mean(sigs):+.3f}, σ={np.std(sigs):.3f}, range=[{np.min(sigs):+.3f}, {np.max(sigs):+.3f}]")
+            print(
+                f"{ticker:>8}: μ={np.mean(sigs):+.3f}, σ={np.std(sigs):.3f}, range=[{np.min(sigs):+.3f}, {np.max(sigs):+.3f}]"
+            )
 
         print("\nPrediction Accuracy by Ticker:")
         print("-" * 40)
         for i, ticker in enumerate(tickers):
-            actual = np.array([ data[ticker].loc[dt] for dt in dates_with_signals ])
-            pred   = predictions_matrix[:, i]
-            mae    = np.mean(np.abs(actual - pred))
-            mape   = np.mean(np.abs((actual - pred) / actual)) * 100
+            actual = np.array([data[ticker].loc[dt] for dt in dates_with_signals])
+            pred = predictions_matrix[:, i]
+            mae = np.mean(np.abs(actual - pred))
+            mape = np.mean(np.abs((actual - pred) / actual)) * 100
             print(f"{ticker:>8}: MAE={mae:.3f}, MAPE={mape:.2f}%")
 
         # If multiple tickers, show a simple correlation table
@@ -249,5 +278,7 @@ class SignalDiagnostics:
             header = f"{'':>8}" + "".join(f"{t:>8}" for t in tickers)
             print(header)
             for i, ti in enumerate(tickers):
-                row = f"{ti:>8}" + "".join(f"{corr_mat[i,j]:>8.3f}" for j in range(len(tickers)))
+                row = f"{ti:>8}" + "".join(
+                    f"{corr_mat[i,j]:>8.3f}" for j in range(len(tickers))
+                )
                 print(row)

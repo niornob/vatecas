@@ -15,7 +15,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from signal_generator.regression.base.oracle import Oracle
-from signal_generator.volatility_adjustor import VolatilityAdjuster
+from signal_generator.asset_grader import AssetGrader, PctReturn
 
 
 @dataclass
@@ -46,7 +46,7 @@ class SignalModule:
         self,
         oracle: Oracle,
         smoothing_window: int = 1,
-        vol_adjuster: Optional[VolatilityAdjuster] = None,
+        asset_grader: Optional[AssetGrader] = None,
         signal_strength_threshold: float = 0.01,
         market_vol_target: float = 2,
         name: str = "Unnamed SignalModule",
@@ -58,7 +58,7 @@ class SignalModule:
         Args:
             oracle: The Oracle instance for generating predictions
             smoothing_window: Window length for prediction smoothing
-            vol_adjuster: Handler for volatility-based adjustments
+            asset_grader: grades predicted future prices based on reference and volatility
             signal_strength_threshold: Minimum threshold for signal generation
             market_vol_target: reference standard deviation of percentage changes of asset prices.
             lower than the reference will leave the signals unaffected.
@@ -69,13 +69,17 @@ class SignalModule:
             smoothing_window >= 1
         ), "smoothing window must be at least 1 (1 => no smoothing)."
         self.smoothing_window = smoothing_window
-        self.vol_adjuster = vol_adjuster or VolatilityAdjuster()
+        self.asset_grader = asset_grader or PctReturn(target_volatility=market_vol_target)
         self.signal_strength_threshold = signal_strength_threshold
         self.market_vol_target = market_vol_target
         self.name = name
         self.version = version
 
-    def generate_signals(self, data: Dict[str, pd.Series]) -> SignalResult:
+    def generate_signals(
+            self, 
+            data: Dict[str, pd.Series],
+            past_predictions: Optional[np.ndarray] = None,
+        ) -> SignalResult:
         """
         Generate trading signals from market data.
 
@@ -88,6 +92,7 @@ class SignalModule:
 
         Args:
             data: Dictionary mapping ticker symbols to price series
+            past_predictions: past prediction to compare future prediction agains
 
         Returns:
             SignalResult containing final signals and intermediate calculations
@@ -98,17 +103,23 @@ class SignalModule:
         asset_covariance = prediction_result.asset_covariance
         market_volatility = np.sqrt(prediction_result.pc1_variance)
 
-        past_prices = np.array([s.iloc[-self.smoothing_window] for s in data.values()])
-
-        pred_returns_frac = (raw_predictions - past_prices) / past_prices
+        #past_prices = np.array([s.iloc[-self.smoothing_window] for s in data.values()])
+        if past_predictions is None:
+            data_lagged = {
+                tk: s.iloc[:-self.smoothing_window]
+                for tk, s in data.items()
+            }
+            past_predictions = self.oracle.predict(data_lagged).predictions
 
         # Apply volatility-based position sizing
-        vol_adjusted_signals, vol_scaling = self.vol_adjuster.adjust_for_volatility(
-            signals=pred_returns_frac, asset_covariance=asset_covariance
+        raw_signals, vol_scaling = self.asset_grader.grade_asset(
+            prediction=raw_predictions,
+            reference=past_predictions, 
+            asset_covariance=asset_covariance
         )
 
         # Normalize signals to [-1, +1] range
-        final_signals = self._normalize_signals(vol_adjusted_signals, market_volatility)
+        final_signals = self._normalize_signals(raw_signals, market_volatility)
 
         return SignalResult(
             signals=final_signals,
@@ -149,3 +160,5 @@ class SignalModule:
 
         return rank
     
+
+

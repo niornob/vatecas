@@ -103,7 +103,7 @@ class KalmanFilter(Oracle):
         m = values.shape[1]
 
         def fx(x: np.ndarray, dt: float = 1) -> np.ndarray:
-            return x * 1.01
+            return x * 1
 
         def hx(x: np.ndarray) -> np.ndarray:
             return x * 1

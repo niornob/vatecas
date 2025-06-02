@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, Optional
+from math import factorial
 
 from signal_generator.regression.base.oracle import Oracle
 
@@ -54,18 +55,6 @@ class Lag(Oracle):
         if not data:
             raise ValueError("Input data cannot be empty")
         
-        tickers = list(data.keys())
-        predictions = np.zeros(len(tickers))
+        predictions = [s.iloc[-1] for s in data.values()]
         
-        for i, ticker in enumerate(tickers):
-            series = data[ticker]
-            
-            if len(series) == 0:
-                raise ValueError(f"Series for ticker '{ticker}' is empty")
-            
-            # Get the lag_days'th value from the end
-            # If lag_days exceeds series length, use the first available value
-            lag_index = min(self.lag_days, len(series))
-            predictions[i] = series.iloc[-lag_index]
-        
-        return predictions
+        return np.array(predictions)

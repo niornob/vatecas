@@ -102,8 +102,8 @@ class KalmanFilter(Oracle):
         """Create and apply a UKF, returning last `history_length` predicted states."""
         m = values.shape[1]
 
-        def fx(x: np.ndarray, dt: float = 0) -> np.ndarray:
-            return x * 1
+        def fx(x: np.ndarray, dt: float = 1) -> np.ndarray:
+            return x * 1.01
 
         def hx(x: np.ndarray) -> np.ndarray:
             return x * 1

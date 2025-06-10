@@ -86,12 +86,12 @@ class SignalDiagnostics:
             # 3b) Generate signals
             try:
                 if len(past_predictions) == self.smoothing_window:
-                    #print(past_predictions)
+                    # print(past_predictions)
                     sig_res: SignalResult = self.signal_module.generate_signals(
                         data=hist_data_numpy, 
                         past_predictions=past_predictions[0]
                     )
-                    #print(sig_res.raw_predictions)
+                    # print(sig_res.raw_predictions)
                 else:
                     sig_res: SignalResult = self.signal_module.generate_signals(
                         data=hist_data_numpy

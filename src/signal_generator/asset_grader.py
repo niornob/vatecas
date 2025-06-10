@@ -35,7 +35,7 @@ class AssetGrader:
         pass
     
 
-class PctReturn(AssetGrader):
+class PctReturnVolAdjusted(AssetGrader):
     def __init__(self, target_volatility: float = 2.0):
         """
         Args:
@@ -67,3 +67,33 @@ class PctReturn(AssetGrader):
         adjusted_signals = signals * vol_scaling
 
         return adjusted_signals, vol_scaling
+
+class PctReturn(AssetGrader):
+    def __init__(self, target_volatility: float = 2.0):
+        """
+        Args:
+            target_volatility: reference volatility. more volatility will scale down signals and less will scale up.
+        """
+        self.target_vol = target_volatility
+        pass
+
+    def grade_asset(
+        self, 
+        prediction: np.ndarray,
+        reference: np.ndarray,
+        asset_covariance: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        # 1. Compute percentage return
+        signals = (prediction - reference) / reference
+
+        # 2. Extract individual volatilities
+        asset_vols = np.sqrt(np.diag(asset_covariance))
+        asset_vols = np.maximum(asset_vols, 1e-2)  # avoid division by zero
+
+        # 3. Compute raw scaling = 1 / sqrt(volatility)
+        vol_scaling = self.target_vol / asset_vols
+
+        # 4. Cap the scaling factors (so they don’t explode when vol is extremely low)
+        vol_scaling = np.clip(vol_scaling, 0.1, 5.0)
+
+        return signals, vol_scaling

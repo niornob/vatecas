@@ -1,12 +1,13 @@
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, List, Tuple, cast, Literal
-import pandas as pd
-import numpy as np
-from tqdm import tqdm
 import time
+from abc import ABC, abstractmethod
+from typing import Dict, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+from signal_generator.volatility.GARCH import GARCH
+from tqdm import tqdm
 
 from .prediction_result import PredictionResult
-from signal_generator.volatility.GARCH import GARCH
 
 
 class Oracle(ABC):
@@ -140,10 +141,14 @@ class Oracle(ABC):
 
         # Initialize prediction containers filled with null values
         pred = pd.DataFrame(
-            np.full((pred_len, len(tickers)), np.nan), columns=tickers, index=range(pred_len)
+            np.full((pred_len, len(tickers)), np.nan),
+            columns=tickers,
+            index=range(pred_len),
         )
         vol_bands = pd.DataFrame(
-            np.full((pred_len, len(tickers)), np.nan), columns=tickers, index=range(pred_len)
+            np.full((pred_len, len(tickers)), np.nan),
+            columns=tickers,
+            index=range(pred_len),
         )
         market_factor = pd.Series(np.full(pred_len, np.nan), index=range(pred_len))
 
@@ -157,8 +162,10 @@ class Oracle(ABC):
         low_data_period = window
 
         # Rolling window prediction with variance
-        for i in tqdm(range(low_data_period, pred_len), desc=f"{self.name} is regressing"):
-            #t0 = time.perf_counter()
+        for i in tqdm(
+            range(low_data_period, pred_len), desc=f"{self.name} is regressing"
+        ):
+            # t0 = time.perf_counter()
             # Extract historical window
             window_start = max(0, i - window)
             sliced_df = data_df.iloc[window_start:i]
@@ -186,9 +193,9 @@ class Oracle(ABC):
 
             except Exception as e:
                 raise RuntimeError(f"Prediction failed at step {i}: {e}")
-            #t1 = time.perf_counter()
+            # t1 = time.perf_counter()
 
-            #print(f"predict in regression: {t1-t0}")
+            # print(f"predict in regression: {t1-t0}")
 
         return (
             {ticker: pred[ticker] for ticker in tickers},

@@ -1,15 +1,15 @@
+from collections import deque
+from typing import Dict, List
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List
-from collections import deque
+from tqdm import tqdm
 
-from signal_generator.signal_module import SignalModule, SignalResult
 from signal_generator.signal_diagnostics_utils import (
     create_signal_colormap,
     plot_ticker_with_heatmap,
-    format_axes_dates,
 )
-from tqdm import tqdm
+from signal_generator.signal_module import SignalModule, SignalResult
 
 
 class SignalDiagnostics:
@@ -88,8 +88,7 @@ class SignalDiagnostics:
                 if len(past_predictions) == self.smoothing_window:
                     # print(past_predictions)
                     sig_res: SignalResult = self.signal_module.generate_signals(
-                        data=hist_data_numpy, 
-                        past_predictions=past_predictions[0]
+                        data=hist_data_numpy, past_predictions=past_predictions[0]
                     )
                     # print(sig_res.raw_predictions)
                 else:
@@ -97,7 +96,7 @@ class SignalDiagnostics:
                         data=hist_data_numpy
                     )
                 past_predictions.append(sig_res.raw_predictions.copy())
-                #print(past_predictions)
+                # print(past_predictions)
                 signals_over_time.append(sig_res.signals.copy())
                 predictions_over_time.append(sig_res.raw_predictions.copy())
                 dates_with_signals.append(current_date)
@@ -142,8 +141,10 @@ class SignalDiagnostics:
         i: int,
     ) -> Dict[str, pd.Series]:
         """
-        For each ticker, produce a NumPy array of all prices up to (but not including) shared_timeline[i].
-        Uses integer‐based .iloc slicing internally to avoid repeated .loc[list_of_timestamps] overhead.
+        For each ticker, produce a NumPy array of all prices up to
+        (but not including) shared_timeline[i].
+        Uses integer‐based .iloc slicing internally to avoid repeated
+        .loc[list_of_timestamps] overhead.
         """
         hist_arrays: Dict[str, pd.Series] = {}
         start_idx = max(0, i - self.lookback)  # earliest position in shared_timeline
@@ -176,7 +177,8 @@ class SignalDiagnostics:
         predictions_matrix: np.ndarray,
     ) -> None:
         """
-        For each ticker, delegate to a helper that builds a single panel (heatmap + lines + stats box).
+        For each ticker, delegate to a helper that builds a single panel
+        (heatmap + lines + stats box).
         """
         # Create or reuse a colormap
         cmap = create_signal_colormap()
@@ -271,7 +273,7 @@ class SignalDiagnostics:
 
         # If multiple tickers, show a simple correlation table
         if len(tickers) > 1:
-            print(f"\nSignal Correlation Matrix:")
+            print("\nSignal Correlation Matrix:")
             print("-" * 30)
             corr_mat = np.corrcoef(signals_matrix.T)
             # Print a text‐based matrix
@@ -279,6 +281,6 @@ class SignalDiagnostics:
             print(header)
             for i, ti in enumerate(tickers):
                 row = f"{ti:>8}" + "".join(
-                    f"{corr_mat[i,j]:>8.3f}" for j in range(len(tickers))
+                    f"{corr_mat[i, j]:>8.3f}" for j in range(len(tickers))
                 )
                 print(row)

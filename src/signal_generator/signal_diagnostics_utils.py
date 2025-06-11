@@ -1,9 +1,10 @@
+from typing import List
+
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap
-from typing import List
-import pandas as pd
+
 
 def create_signal_colormap() -> LinearSegmentedColormap:
     """
@@ -27,7 +28,7 @@ def plot_ticker_with_heatmap(
     actual_prices: List[float],
     predicted_prices: np.ndarray,
     signals: np.ndarray,
-    cmap: LinearSegmentedColormap
+    cmap: LinearSegmentedColormap,
 ) -> None:
     """
     Draws, on a given Axes:
@@ -53,7 +54,7 @@ def plot_ticker_with_heatmap(
 
     x_coords = np.arange(n)
     y_coords = np.linspace(y_bottom, y_top, 100)
-    X, Y = np.meshgrid(x_coords, y_coords)
+    X, _ = np.meshgrid(x_coords, y_coords)
 
     # Build Z so that each column is constant = signals[time]
     Z = np.zeros_like(X, dtype=float)
@@ -61,7 +62,7 @@ def plot_ticker_with_heatmap(
         Z[:, t_idx] = sig
 
     # 2) Plot the heatmap
-    im = ax.imshow(
+    _ = ax.imshow(
         Z,
         extent=(0, n - 1, y_bottom, y_top),
         aspect="auto",
@@ -73,8 +74,23 @@ def plot_ticker_with_heatmap(
     )
 
     # 3) Overlay actual price (black) and predicted price (blue)
-    ax.plot(range(n), actual_prices, color="black", linewidth=1.5, alpha=0.9, label="Actual Price")
-    ax.plot(range(n), predicted_prices, color="orange", linewidth=1.5, alpha=0.9, linestyle="-", label="Predicted Price")
+    ax.plot(
+        range(n),
+        actual_prices,
+        color="black",
+        linewidth=1.5,
+        alpha=0.9,
+        label="Actual Price",
+    )
+    ax.plot(
+        range(n),
+        predicted_prices,
+        color="orange",
+        linewidth=1.5,
+        alpha=0.9,
+        linestyle="-",
+        label="Predicted Price",
+    )
 
     # 4) Format x‐axis using helper
     format_axes_dates(ax, dates)
@@ -102,7 +118,10 @@ def plot_ticker_with_heatmap(
     # 7) Attach colorbar on the right of the entire figure if needed by the caller
     #    (Often, callers will create a separate colorbar, so we omit it here.)
 
-def format_axes_dates(ax: Axes, dates: List[pd.Timestamp], max_labels: int = 10) -> None:
+
+def format_axes_dates(
+    ax: Axes, dates: List[pd.Timestamp], max_labels: int = 10
+) -> None:
     """
     Sets x‐ticks & x‐ticklabels on `ax` so they show a subset of `dates`.
     Rotates them for readability.

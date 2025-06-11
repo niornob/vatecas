@@ -120,6 +120,8 @@ class SignalModule:
             market_volatility=market_volatility,
             target_volatility=self.market_vol_target,
         )
+        
+        # print(final_signals)
 
         return SignalResult(
             signals=final_signals,

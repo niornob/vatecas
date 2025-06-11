@@ -1,9 +1,8 @@
-from typing import Optional, Dict, List, Tuple, cast, Literal
-import pandas as pd
+from typing import Dict, Literal, Optional, Tuple, cast
+
 import numpy as np
-from arch import arch_model
+import pandas as pd
 from sklearn.decomposition import PCA
-import warnings
 
 from .GARCHpq import garch_pq
 
@@ -73,7 +72,7 @@ def GARCH(
     for ticker in tickers:
         try:
             returns_series = returns_data[ticker]
-            
+
             # Extract parameters and convert them to the format expected by garch_pq
             # We need to handle the parameter mapping carefully since the original
             # function used slightly different parameter names
@@ -83,34 +82,48 @@ def GARCH(
                 q=cast(int, params.get("q", 1)),
                 mean=cast(
                     Literal[
-                        "Constant", "Zero", "LS", "AR", "ARX", "HAR", "HARX", "constant", "zero"
+                        "Constant",
+                        "Zero",
+                        "LS",
+                        "AR",
+                        "ARX",
+                        "HAR",
+                        "HARX",
+                        "constant",
+                        "zero",
                     ],
-                    params.get("mean", "zero")
+                    params.get("mean", "zero"),
                 ),
                 vol=cast(
-                    Literal[
-                        "GARCH", "ARCH", "EGARCH", "FIGARCH", "APARCH", "HARCH"
-                    ],
-                    params.get("vol", "GARCH")
+                    Literal["GARCH", "ARCH", "EGARCH", "FIGARCH", "APARCH", "HARCH"],
+                    params.get("vol", "GARCH"),
                 ),
                 dist=cast(
                     Literal[
-                        "normal", "gaussian", "t", "studentst", "skewstudent", 
-                        "skewt", "ged", "generalized error"
+                        "normal",
+                        "gaussian",
+                        "t",
+                        "studentst",
+                        "skewstudent",
+                        "skewt",
+                        "ged",
+                        "generalized error",
                     ],
-                    params.get("distribution", "normal")
-                )
+                    params.get("distribution", "normal"),
+                ),
             )
-            
+
             # Convert volatility to variance for consistency with the rest of the function
-            garch_forecasts[ticker] = garch_volatility ** 2
+            garch_forecasts[ticker] = garch_volatility**2
 
         except Exception as e:
             # Robust fallback mechanism: if our GARCH modeling fails for any reason,
             # we fall back to a simple rolling volatility estimate
             # This ensures the function remains reliable even with problematic data
-            print(f"GARCH modeling failed for {ticker}: {e}. Using rolling volatility fallback.")
-            
+            print(
+                f"GARCH modeling failed for {ticker}: {e}. Using rolling volatility fallback."
+            )
+
             rolling_vol = (
                 returns_data[ticker]
                 .rolling(window=min(20, len(returns_data[ticker])))
@@ -121,7 +134,7 @@ def GARCH(
 
     # The PCA analysis and covariance matrix construction remain unchanged
     # This part of the function was already well-structured and doesn't need modification
-    
+
     # Perform PCA on returns to identify principal components
     # This captures the common factors driving asset price movements
     pca = PCA(n_components=min(n_assets, len(returns_df)))

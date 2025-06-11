@@ -59,3 +59,15 @@ class NormalizerVolAdj(SignalNormalizer):
         )
 
         return vol_scaling * raw_raw_signals
+
+class NormalizerTrivial(SignalNormalizer):
+    def normalize_signals(
+        self,
+        raw_signals: np.ndarray,
+        market_volatility: Optional[float] = None,
+        target_volatility: Optional[float] = None,
+    ) -> np.ndarray:
+
+        n = max(np.abs(raw_signals))
+       
+        return raw_signals / n

@@ -19,9 +19,9 @@ PORTFOLIO_PATH = BASE_DIR / "portfolio" / "portfolio.json"
 RECOMMENDATION_PATH = BASE_DIR / "portfolio" / "recommendation.json"
 
 # Import platform classes
-from investor.portfolio_manager import PortfolioManager
-from investor.atomic_types import Signal, Order, Position
-from investor._sizing import FixedFractionalSizing
+from portfolio_management.portfolio_manager import PortfolioManager
+from portfolio_management.atomic_types import Signal, Order, Position
+from portfolio_management._sizing import FixedFractionalSizing
 from signal_generator.signal_module import SignalModule
 from signal_generator.regression.Kalman_filter import KalmanFilter
 

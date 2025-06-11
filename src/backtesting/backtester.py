@@ -8,7 +8,7 @@ import seaborn as sns
 from datetime import datetime
 import warnings
 
-from investor.portfolio_manager import PortfolioManager
+from portfolio_management.portfolio_manager import PortfolioManager
 from signal_generator.signal_module import SignalModule
 from utils.visualizations import (
     _equity_vs_benchmark,

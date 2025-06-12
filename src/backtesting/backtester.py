@@ -1,15 +1,15 @@
-from typing import Mapping, Sequence, Tuple, Dict, List, Optional
-import pandas as pd
-from tqdm import tqdm
-import numpy as np
-from collections import deque
-import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime
 import warnings
+from collections import deque
+from datetime import datetime
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
 from portfolio_management.portfolio_manager import PortfolioManager
 from signal_generator.signal_module import SignalModule
+from tqdm import tqdm
 from utils.visualizations import (
     _equity_vs_benchmark,
     _equity_vs_benchmark_marked,
@@ -140,7 +140,7 @@ class BacktestEngine:
             self.trading_timeline
         ), f"not enough data ({len(self.trading_timeline)}) for lookback_period ({self.lookback_period.days} days)."
 
-        past_predictions: deque[np.ndarray] = deque(
+        recent_predictions: deque[np.ndarray] = deque(
             [], maxlen=self.signal_module.smoothing_window
         )
 
@@ -154,19 +154,19 @@ class BacktestEngine:
                     continue
 
                 # Generate signals based on data up to yesterday
-                if len(past_predictions) == self.signal_module.smoothing_window:
+                if len(recent_predictions) == self.signal_module.smoothing_window:
                     signal = self.signal_module.generate_signals(
-                        data=historical_data, past_predictions=past_predictions[0]
+                        data=historical_data, recent_predictions=recent_predictions
                     )
                 else:
                     signal = self.signal_module.generate_signals(data=historical_data)
-                
+
                 signals = {tk: sig for tk, sig in zip(signal.tickers, signal.signals)}
-                past_predictions.append(signal.raw_predictions.copy())
+                recent_predictions.append(signal.raw_predictions.copy())
 
                 # Store signals for analysis
                 self._record_signals(signals, today)
-                
+
                 # Execute trades if we have valid opening prices
                 opening_prices = self._get_opening_prices(today)
                 if opening_prices:
@@ -228,7 +228,7 @@ class BacktestEngine:
             for ticker, signal in signals.items()
             if ticker in opening_prices
         }
-        
+
         if executable_signals:
             # print(executable_signals, opening_prices, date)
             self.manager.process_signals(executable_signals, opening_prices, date)

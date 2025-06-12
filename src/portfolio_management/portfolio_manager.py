@@ -1,18 +1,21 @@
-import pandas as pd
 from typing import (
     Dict,
     Mapping,
 )
 
-from portfolio_management.atomic_types import Position, Order
-from portfolio_management._sizing import SizingModel, FractionalSizing
+import pandas as pd
+
 from portfolio_management._frequency_control import ThresholdDecayController
-from portfolio_management._portfolio import Portfolio, OrderGenerator
+from portfolio_management._portfolio import OrderGenerator, Portfolio
 from portfolio_management._portfolio_metrics import PerformanceTracker
+from portfolio_management._sizing import FractionalSizing, SizingModel
+from portfolio_management.atomic_types import Order, Position
 
 # ========================
 # PORTFOLIO MANAGER (FACADE)
 # ========================
+
+
 class PortfolioManager:
     """
     Facade class that coordinates portfolio, order generation, and performance tracking.
@@ -23,7 +26,7 @@ class PortfolioManager:
         self,
         initial_capital: float = 0.0,
         initial_positions: Dict[str, Position] = {},
-        initial_time: pd.Timestamp = pd.Timestamp("2000-01-01T12:00:00+00:00"),
+        initial_time: pd.Timestamp = pd.Timestamp("1970-01-01T12:00:00+00:00"),
         max_position_fraction: float = 1.0,
         commission: float = 0.0,
         slippage: float = 0.0,
@@ -139,5 +142,3 @@ class PortfolioManager:
             ticker: position.size
             for ticker, position in self.portfolio.state.positions.items()
         }
-
-

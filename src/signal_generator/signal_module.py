@@ -12,6 +12,7 @@ A signal module will consist of the following components:
 """
 
 import warnings
+from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -34,7 +35,7 @@ class SignalResult:
     providing both the final signals and intermediate calculations for analysis.
     """
 
-    signals: np.ndarray  # Final trading signals [-1, +1] for each ticker
+    signals: np.ndarray  # Trading signals [-1, +1] for each ticker
     raw_predictions: np.ndarray  # Original predictions from Oracle
     volatility_adjustments: np.ndarray  # Volatility-based scaling factors
     tickers: List[str]  # Ticker symbols in order
@@ -55,9 +56,9 @@ class SignalModule:
 
         Args:
             oracle: The Oracle instance for generating predictions
-            smoothing_window: Window length for prediction smoothing
-            asset_grader: grades predicted future prices based on reference and volatility
-            market_vol_target: reference standard deviation of percentage changes of asset prices.
+            smoothing_window: Window length for coputing return (%)
+            asset_grader: grades assets based on returns and volatility
+            market_vol_target: reference volatility, single value for the whole market.
             lower than the reference will leave the signals unaffected.
             higher than the reference will scale down the signals proportionately.
         """
@@ -74,7 +75,7 @@ class SignalModule:
     def generate_signals(
         self,
         data: Dict[str, pd.Series],
-        past_predictions: Optional[np.ndarray] = None,
+        recent_predictions: Optional[deque[np.ndarray]] = None,
     ) -> SignalResult:
         """
         Generate trading signals from market data.
@@ -82,12 +83,12 @@ class SignalModule:
         This is the main orchestration method that coordinates all signal generation steps:
         1. Get predictions from Oracle (mean + covariance)
         2. Convert to directional signals
-        3. Apply volatility-based position sizing
+        3. Adjust signals based on volatility if needed
         4. Normalize to [-1, +1] range
 
         Args:
             data: Dictionary mapping ticker symbols to price series
-            past_predictions: past prediction to compare future prediction agains
+            recent_predictions: past prediction to compare future prediction agains
 
         Returns:
             SignalResult containing final signals and intermediate calculations
@@ -100,16 +101,26 @@ class SignalModule:
 
         # If past predictions are not provided, build historical
         # data upto the appropriate past date to compute past predictions from
-        if past_predictions is None:
-            data_lagged = {
-                tk: s.iloc[: -self.smoothing_window] for tk, s in data.items()
-            }
-            past_predictions = self.oracle.predict(data_lagged).predictions
+        recent_predictions = recent_predictions or deque(
+            np.array([]), maxlen=self.smoothing_window
+        )
+        if len(recent_predictions) < self.smoothing_window:
+            for i in range(1, self.smoothing_window + 1):
+                data_lagged = {tk: s.iloc[:-i] for tk, s in data.items()}
+                recent_predictions.appendleft(
+                    self.oracle.predict(data_lagged).predictions
+                )
 
-        # Apply volatility-based position sizing
+        recent_prices = deque(
+            pd.DataFrame(data).iloc[-self.smoothing_window :].values,
+            maxlen=self.smoothing_window,
+        )
+
+        # Grade assets based on predictions and volatility
         raw_signals, vol_scaling = self.asset_grader.grade_asset(
             prediction=raw_predictions,
-            reference=past_predictions,
+            recent_prices=recent_prices,
+            recent_predictions=recent_predictions,
             asset_covariance=asset_covariance,
             target_volatility=self.market_vol_target,
         )
@@ -120,8 +131,6 @@ class SignalModule:
             market_volatility=market_volatility,
             target_volatility=self.market_vol_target,
         )
-        
-        # print(final_signals)
 
         return SignalResult(
             signals=final_signals,

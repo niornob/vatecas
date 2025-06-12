@@ -71,7 +71,7 @@ class SignalDiagnostics:
         predictions_over_time: List[np.ndarray] = []
         dates_with_signals: List[pd.Timestamp] = []
 
-        past_predictions: deque[np.ndarray] = deque([], maxlen=self.smoothing_window)
+        recent_predictions: deque[np.ndarray] = deque([], maxlen=self.smoothing_window)
 
         for i in tqdm(
             range(self.lookback, len(shared_timeline)), desc="Processing timeline"
@@ -85,18 +85,18 @@ class SignalDiagnostics:
 
             # 3b) Generate signals
             try:
-                if len(past_predictions) == self.smoothing_window:
-                    # print(past_predictions)
+                if len(recent_predictions) == self.smoothing_window:
+                    # print(recent_predictions)
                     sig_res: SignalResult = self.signal_module.generate_signals(
-                        data=hist_data_numpy, past_predictions=past_predictions[0]
+                        data=hist_data_numpy, recent_predictions=recent_predictions
                     )
                     # print(sig_res.raw_predictions)
                 else:
                     sig_res: SignalResult = self.signal_module.generate_signals(
                         data=hist_data_numpy
                     )
-                past_predictions.append(sig_res.raw_predictions.copy())
-                # print(past_predictions)
+                recent_predictions.append(sig_res.raw_predictions.copy())
+                # print(recent_predictions)
                 signals_over_time.append(sig_res.signals.copy())
                 predictions_over_time.append(sig_res.raw_predictions.copy())
                 dates_with_signals.append(current_date)

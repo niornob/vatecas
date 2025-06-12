@@ -21,8 +21,8 @@ class SignalNormalizer(ABC):
     def normalize_signals(
         self,
         raw_signals: np.ndarray,
-        market_volatility: Optional[float] = None,
-        target_volatility: Optional[float] = None,
+        market_volatility: Optional[float],
+        target_volatility: Optional[float],
     ) -> np.ndarray: ...
 
 

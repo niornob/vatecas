@@ -5,6 +5,7 @@ Grades are between -1 and 1.
 """
 
 from abc import abstractmethod
+from collections import deque
 from typing import Optional, Tuple
 
 import numpy as np
@@ -19,14 +20,15 @@ class AssetGrader:
     maintain consistent risk exposure across the portfolio.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, name: str = "UnnamedAssetGrade"):
+        self.name = name
 
     @abstractmethod
     def grade_asset(
         self,
         prediction: np.ndarray,
-        reference: np.ndarray,
+        recent_prices: deque[np.ndarray],
+        recent_predictions: deque[np.ndarray],
         asset_covariance: np.ndarray,
         target_volatility: float,
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -48,10 +50,15 @@ class GraderPctReturnVolAdj(AssetGrader):
     def grade_asset(
         self,
         prediction: np.ndarray,
-        reference: np.ndarray,
+        recent_prices: deque[np.ndarray],
+        recent_predictions: deque[np.ndarray],
         asset_covariance: np.ndarray,
         target_volatility: float = 2.0,
     ) -> Tuple[np.ndarray, np.ndarray]:
+
+        # 0. Extract the reference, the oldest prediction in buffer.
+        reference = recent_predictions[0]
+
         # 1. Compute percentage return
         signals = (prediction - reference) / reference
 
@@ -62,11 +69,8 @@ class GraderPctReturnVolAdj(AssetGrader):
         # 3. Compute raw scaling = 1 / sqrt(volatility)
         vol_scaling = target_volatility / asset_vols
 
-        # 4. Cap the scaling factors (so they don’t explode when vol is extremely low)
-        vol_scaling = np.clip(vol_scaling, 0.1, 5.0)
-
         # 5. Apply scaling to raw signals
-        adjusted_signals = signals * vol_scaling
+        adjusted_signals = np.clip(signals * vol_scaling, -1, 1)
 
         return adjusted_signals, vol_scaling
 
@@ -75,12 +79,17 @@ class GraderPctReturn(AssetGrader):
     def grade_asset(
         self,
         prediction: np.ndarray,
-        reference: np.ndarray,
+        recent_prices: deque[np.ndarray],
+        recent_predictions: deque[np.ndarray],
         asset_covariance: Optional[np.ndarray] = None,
         target_volatility: Optional[float] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
+
+        # 0. Extract the reference, the oldest prediction in buffer.
+        reference = recent_predictions[0]
+
         # 1. Compute percentage return
-        signals = (prediction - reference) / reference
+        signals = np.clip((prediction - reference) / reference, -1, 1)
         vol_scaling = np.ones_like(signals)
 
         return signals, vol_scaling

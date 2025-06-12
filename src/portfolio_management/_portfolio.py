@@ -1,15 +1,15 @@
-import pandas as pd
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from math import floor
 from typing import (
     Dict,
     List,
 )
-from collections import OrderedDict
 
-from portfolio_management.atomic_types import Position, Signal, Order
-from portfolio_management._sizing import SizingModel
+import pandas as pd
+
 from portfolio_management._frequency_control import TradeFrequencyController
+from portfolio_management._sizing import SizingModel
+from portfolio_management.atomic_types import Order, Position, Signal
 
 # ========================
 # ORDER GENERATION

@@ -7,9 +7,9 @@ from typing import (
 )
 from collections import OrderedDict
 
-from .atomic_types import Position, Signal, Order
-from ._sizing import SizingModel
-from ._frequency_control import TradeFrequencyController
+from portfolio_management.atomic_types import Position, Signal, Order
+from portfolio_management._sizing import SizingModel
+from portfolio_management._frequency_control import TradeFrequencyController
 
 # ========================
 # ORDER GENERATION
@@ -17,205 +17,107 @@ from ._frequency_control import TradeFrequencyController
 
 
 class OrderGenerator:
-    """
-    Responsible for generating orders based on trading signals and portfolio constraints.
-    """
-
-    STRONG_BUY_THRESHOLD = 0.5
-    WEAK_MARKET_THRESHOLD = 0.1
-    PANIC_SELL_FALLOFF = 5  # 1 => no panic, <1 => double down, >1 => panic
-
     def __init__(
         self,
         sizing_model: SizingModel,
         frequency_controller: TradeFrequencyController,
         commission: float = 0.0,
         slippage: float = 0.0,
-        max_position_size: float = float("inf"),
-        min_trade_size: float = 1e-3,
+        max_position_fraction: float = 1.0,
     ):
-        """
-        Initialize the order generator.
-
-        Args:
-            sizing_model: Model used for position sizing.
-            frequency_controller: Controller for trade frequency.
-            commission: Fixed commission per trade.
-            slippage: Slippage as a fraction of trade value.
-            max_position_size: Maximum allowed position size in dollars.
-            min_trade_size: Minimum trade size in number of shares.
-        """
         self.sizing_model = sizing_model
+        self.commission = commission  # fraction of trade notional
+        self.slippage = slippage  # fraction of price
+        self.max_position_fraction = max_position_fraction
         self.frequency_controller = frequency_controller
-        self.commission = commission
-        self.slippage = slippage
-        self.max_position_size = max_position_size
-        self.min_trade_size = min_trade_size
-
-    def _push_toward_sell(self, x: float, threshold: float, falloff: float) -> float:
-        """
-        pulls down the line connecting (-1,-1) and (threshold,threshold).
-        used to push signals below threshold more toward sell.
-        falloff controls how sharply the curve drops off after threshold.
-        falloff = 1 : zero dropoff.
-        falloff > 1: the larger the falloff the bigger the dropoff.
-        falloff < 1: the curve is in fact pulled up instead of down.
-        """
-        if not -1 <= x <= threshold:
-            raise ValueError("Ordergenerator: x must lie in [-1, threshold]")
-        if falloff < 1:
-            raise ValueError(
-                "Ordergenerator: Sells are being deprioritized. This is most likely unintended."
-            )
-        return -1 + (threshold + 1) * ((x + 1) / (threshold + 1)) ** falloff
 
     def generate_orders(
         self,
-        signals: Dict[str, Signal],
-        positions: Dict[str, Position],
+        signals: Dict[str, "Signal"],
+        positions: Dict[str, "Position"],
         cash: float,
         current_prices: Dict[str, float],
-    ) -> Dict[str, Order]:
-        """
-        Generate orders based on signals and current portfolio state.
+    ) -> Dict[str, "Order"]:
+        # 0) filter out signals that are below threshold
+        signals_passed = {
+            tk: sig
+            for tk, sig in signals.items()
+            if self.frequency_controller.should_trade(
+                signal=sig.value,
+                current_time=sig.timestamp,
+                last_trade_time=(
+                    positions[tk].last_trade_time
+                    if tk in positions
+                    else pd.Timestamp("2000-01-01T12:00:00+00:00")
+                ),
+            )
+        }
 
-        Args:
-            signals: Dictionary of ticker to Signal objects.
-            positions: Dictionary of ticker to Position objects.
-            cash: Available cash.
-            current_prices: Dictionary of current prices for each ticker.
-
-        Returns:
-            Dictionary of ticker to Order objects.
-        """
-
-        # Partition signals
-        sells = [(tk, s) for tk, s in signals.items() if s.value < 0]
-        buys = [(tk, s) for tk, s in signals.items() if s.value >= 0]
-
-        # Cash from executing all current sells
-        potential_sell_cash = sum(
-            positions.get(tk, Position(tk)).size * s.price * (1 - self.slippage)
-            for tk, s in sells
+        # 1) Determine raw order sizes (shares) from sizing model
+        raw_orders = self.sizing_model.size_position(
+            signals={t: sig.value for t, sig in signals_passed.items()},
+            positions={t: pos.size for t, pos in positions.items()},
+            prices=current_prices,
+            cash=cash,
+            max_position_fraction=self.max_position_fraction,
         )
 
-        # net equity
-        equity = sum(positions[tk].size * current_prices[tk] for tk in positions)
+        # 2) Separate buy and sell orders
+        buy_orders = {t: qty for t, qty in raw_orders.items() if qty > 0}
+        sell_orders = {t: qty for t, qty in raw_orders.items() if qty < 0}
 
-        # Cash needed to fully fund strong buys
-        strong = [(tk, s) for tk, s in buys if s.value >= self.STRONG_BUY_THRESHOLD]
-        strong_values = [
-            self.sizing_model.size_position(
-                signal=s.value,
-                price=s.price,
-                equity=equity,
-                position_value=positions.get(tk, Position(tk)).value(s.price),
-                max_position_size=self.max_position_size,
-            )
-            * s.price
-            * (1 + self.slippage)
-            + self.commission
-            for tk, s in strong
-        ]
-
-        required_strong_cash = sum(strong_values)
-
-        total_available = cash + potential_sell_cash
-        # print(total_available, cash, required_strong_cash, strong, strong_data)
-        if total_available < required_strong_cash:
-            # print("pre: ", signals)
-            # Compute dampening parameters
-            total_strong = sum(
-                s.value
-                for _, s in signals.items()
-                if s.value > self.STRONG_BUY_THRESHOLD
-            )
-            absolute_weak = sum(
-                abs(s.value)
-                for _, s in signals.items()
-                if s.value < self.STRONG_BUY_THRESHOLD
-            )
-            if absolute_weak > 0:
-                falloff = 1 + 2 * (total_strong / absolute_weak)
-                # Apply dampening to all weak signals (both buys < threshold and sells)
-                for tk, s in signals.items():
-                    if s.value < self.STRONG_BUY_THRESHOLD:
-                        signals[tk].value = self._push_toward_sell(
-                            s.value,
-                            threshold=self.STRONG_BUY_THRESHOLD,
-                            falloff=falloff,
-                        )
-
-            # print("post: ", signals)
-
-        #
+        # 3) Create sell Order objects (we receive proceeds immediately)
+        orders: Dict[str, Order] = {}
         available_cash = cash
-        orders: dict[str, Order] = {}
-
-        sorted_sells = sorted(sells, key=lambda x: x[1].value)
-        sorted_buys = sorted(
-            [(tk, signals[tk]) for tk, _ in buys],
-            key=lambda x: -x[1].value,
-        )
-        sorted_signals = sorted_sells + sorted_buys
-
-        for ticker, signal in sorted_signals:
-            price = current_prices.get(ticker)
-            if price is None or price <= 0:
-                continue
-
-            pos = positions.get(ticker, Position(ticker=ticker))
-            if not self.frequency_controller.should_trade(
-                ticker, signal.value, signal.timestamp, pos.last_trade_time
-            ):
-                continue
-
-            position_value = pos.size * price
-            size = self.sizing_model.size_position(
-                signal.value,
-                price,
-                available_cash,
-                position_value,
-                self.max_position_size,
-            )
-            if abs(size) < self.min_trade_size:
-                continue
-
-            if size < 0:
-                size = max(-pos.size, size)
-                if abs(size) < self.min_trade_size:
-                    continue
-
+        for ticker, qty in sell_orders.items():
+            price = current_prices[ticker]
+            slp_price = price * (1 - self.slippage)
+            notional = slp_price * abs(qty)
+            commission_amt = abs(notional) * self.commission
             order = Order(
                 ticker=ticker,
-                size=size,
-                price=price,
-                timestamp=signal.timestamp,
+                size=qty,
+                price=slp_price,
+                timestamp=signals[ticker].timestamp,
                 slippage=self.slippage,
-                commission=self.commission,
+                commission=commission_amt,
             )
-
-            if size > 0 and order.total_cost > available_cash:
-                adjusted = max(
-                    int(
-                        (available_cash - self.commission)
-                        / (price * (1 + self.slippage) + 1e-5)
-                    ),
-                    0,
-                )
-                if adjusted < self.min_trade_size:
-                    continue
-                order = Order(
-                    ticker=ticker,
-                    size=adjusted,
-                    price=price,
-                    timestamp=signal.timestamp,
-                    slippage=self.slippage,
-                    commission=self.commission,
-                )
-
-            available_cash -= order.total_cost
             orders[ticker] = order
+            available_cash += notional - commission_amt
+
+        # 4) Allocate buy orders in descending signal strength order
+        #    to respect cash constraint and favor stronger signals
+        # Compute candidate buy costs
+        buy_list = []  # List of tuples (signal, ticker, target_qty)
+        for ticker, qty in buy_orders.items():
+            buy_list.append((signals[ticker].value, ticker, qty))
+        buy_list.sort(reverse=True, key=lambda x: x[0])
+
+        for _, ticker, target_qty in buy_list:
+            price = current_prices[ticker]
+            slp_price = price * (1 + self.slippage)
+            # max shares we can afford at this price + commission
+            # approximate per-share commission cost
+            per_share_comm = self.commission * slp_price
+            max_affordable_shares = max(
+                available_cash / (slp_price + per_share_comm), 0
+            )
+            executed_qty = min(target_qty, max_affordable_shares)
+            if executed_qty <= 0:
+                continue
+            notional = slp_price * executed_qty
+            commission_amt = abs(notional) * self.commission
+            order = Order(
+                ticker=ticker,
+                size=executed_qty,
+                price=slp_price,
+                timestamp=signals[ticker].timestamp,
+                slippage=self.slippage,
+                commission=commission_amt,
+            )
+            orders[ticker] = order
+            # deduct cost
+            available_cash -= notional + commission_amt
 
         return orders
 
@@ -228,6 +130,7 @@ class OrderGenerator:
 @dataclass
 class PortfolioState:
     """Represents the current state of a portfolio."""
+
     timestamp: pd.Timestamp
     cash: float
     positions: Dict[str, Position] = field(default_factory=dict)
@@ -258,7 +161,7 @@ class Portfolio:
         initial_capital: float,
         order_generator: OrderGenerator,
         initial_positions: Dict[str, Position],
-        initial_time: pd.Timestamp = pd.Timestamp("2000-01-01T12:00:00+00:00"),
+        initial_time: pd.Timestamp = pd.Timestamp("1970-01-01T12:00:00+00:00"),
     ):
         """
         Initialize the portfolio.
@@ -267,7 +170,9 @@ class Portfolio:
             initial_capital: Initial cash amount.
             order_generator: Order generator component.
         """
-        self.state = PortfolioState(cash=initial_capital, positions=initial_positions, timestamp=initial_time)
+        self.state = PortfolioState(
+            cash=initial_capital, positions=initial_positions, timestamp=initial_time
+        )
         self.order_generator = order_generator
         self.order_history: List[Order] = []
         self.initial_time = initial_time
@@ -279,7 +184,7 @@ class Portfolio:
     @property
     def positions(self) -> Dict[str, Position]:
         return self.state.positions
-    
+
     @property
     def timestamp(self) -> pd.Timestamp:
         return self.state.timestamp

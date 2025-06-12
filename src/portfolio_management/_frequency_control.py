@@ -4,9 +4,9 @@ from abc import ABC, abstractmethod
 from scipy.special import expit
 
 
-# ========================
+# ============================
 # TRADE FREQUENCY CONTROLLERS
-# ========================
+# ============================
 
 
 class TradeFrequencyController(ABC):
@@ -18,7 +18,6 @@ class TradeFrequencyController(ABC):
     @abstractmethod
     def should_trade(
         self,
-        ticker: str,
         signal: float,
         current_time: pd.Timestamp,
         last_trade_time: pd.Timestamp,
@@ -27,7 +26,6 @@ class TradeFrequencyController(ABC):
         Determine if a trade should be executed based on timing and signal strength.
 
         Args:
-            ticker: Asset ticker symbol.
             signal: Trading signal value between -1 and 1.
             current_time: Current timestamp.
             last_trade_time: Timestamp of the last trade for this asset.
@@ -101,7 +99,6 @@ class ThresholdDecayController(TradeFrequencyController):
 
     def should_trade(
         self,
-        ticker: str,
         signal: float,
         current_time: pd.Timestamp,
         last_trade_time: pd.Timestamp,

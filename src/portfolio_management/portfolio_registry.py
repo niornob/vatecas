@@ -4,7 +4,7 @@ import pandas as pd
 import yaml
 
 from .portfolio_manager import PortfolioManager
-from ._sizing import FixedFractionalSizing, SizingModel
+from ._sizing import FractionalSizing, SizingModel
 from .atomic_types import Position
 
 
@@ -26,8 +26,8 @@ class PortfolioRegistry:
         cfg = self.configs[name]
 
         sm_cfg = cfg["sizing_model"]
-        if sm_cfg["type"] == "FixedFractionalSizing":
-            sizing: SizingModel = FixedFractionalSizing(sm_cfg["fraction"])
+        if sm_cfg["type"] == "FractionalSizing":
+            sizing: SizingModel = FractionalSizing(sm_cfg["fraction"])
         else:
             raise ValueError(f"Unknown sizing model {sm_cfg['type']}")
 
@@ -43,7 +43,7 @@ class PortfolioRegistry:
             initial_capital=float(cfg["capital"]),
             initial_positions=positions,
             initial_time=initial_time,
-            max_position_size=float(cfg["max_position_size"]),
+            max_position_fraction=float(cfg["max_position_fraction"]),
             commission=cfg.get("commission", 0.0),
             slippage=cfg.get("slippage", 0.0),
             sizing_model=sizing,

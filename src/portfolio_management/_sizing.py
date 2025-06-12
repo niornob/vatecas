@@ -1,83 +1,80 @@
-from typing import Protocol
-
-# ========================
-# SIZING MODELS
-# ========================
+from abc import ABC, abstractmethod
+from typing import Dict, Optional
 
 
-class SizingModel(Protocol):
-    """Protocol defining position sizing logic interface."""
+class SizingModel(ABC):
+    def __init__(
+        self,
+        max_position_fraction: float = 1.0,
+    ):
+        self.max_position_fraction = max_position_fraction
 
+    @abstractmethod
     def size_position(
         self,
-        signal: float,
-        price: float,
-        equity: float,
-        position_value: float,
-        max_position_size: float,
-    ) -> float:
+        signals: Dict[str, float],
+        positions: Dict[str, float],
+        prices: Dict[str, float],
+        cash: float,
+        max_position_fraction: float,
+    ) -> Dict[str, float]:
         """
-        Calculate position size based on signal strength and available resources.
+        Compute order sizes for each asset, given signals, current positions,
+        prices, available cash, and a constraint on maximum position size.
 
-        Args:
-            signal: Value between -1 and 1. <0 is a sell, >0 is a buy.
-            price: Current price of the asset.
-            equity: net equity.
-            position_value: Current position value for selling.
-            max_position_size: Maximum allowed position size.
-
-        Returns:
-            Number of shares/contracts to trade.
+        :param signals: mapping from ticker to signal in [-1, 1]
+        :param positions: mapping from ticker to current number of shares held
+        :param prices: mapping from ticker to current price per share
+        :param cash: available cash in the portfolio
+        :param max_position_fraction: maximum fraction of total equity per position
+        :return: mapping from ticker to signed number of shares to buy (>0) or sell (<0)
         """
-        ...
+        pass
 
 
-class FixedFractionalSizing:
-    """
-    Allocates a fixed fraction of capital scaled by signal strength,
-    and converts the resulting dollar amount into number of shares.
-    """
-
-    def __init__(self, fraction: float):
-        if not 0 <= fraction <= 1:
-            raise ValueError("Fraction must be between 0 and 1")
-        self.fraction = fraction
-
+class FractionalSizing(SizingModel):
     def size_position(
         self,
-        signal: float,
-        price: float,
-        equity: float,
-        position_value: float,
-        max_position_size: float,
-    ) -> float:
-        """
-        Calculate position size based on signal strength and fixed fraction.
+        signals: Dict[str, float],
+        positions: Dict[str, float],
+        prices: Dict[str, float],
+        cash: float,
+        max_position_fraction: Optional[float] = None,
+    ) -> Dict[str, float]:
+        max_position_fraction = max_position_fraction or self.max_position_fraction
 
-        Args:
-            signal: Value between -1 and 1. <0 is a sell, >0 is a buy.
-            price: Current price of the asset.
-            equity: net equity.
-            position_value: Current position value for selling.
-            max_position_size: Maximum allowed position size.
-
-        Returns:
-            Number of shares/contracts to trade.
-        """
-        if abs(signal) > 1:
-            raise ValueError("Signal must be between -1 and 1.")
-
-        if price <= 0:
-            return 0.0
-
-        # Use current cash for buys, current position value for sells
-        #base = available_cash if signal > 0 else position_value
-        base = equity if signal > 0 else position_value
-        dollar_amount = self.fraction * base * signal
-
-        # Apply position size limit
-        dollar_amount = min(abs(dollar_amount), max_position_size) * (
-            1 if dollar_amount > 0 else -1
+        # Compute total equity: sum of position values + cash
+        equity = cash + sum(
+            positions.get(ticker, 0) * prices[ticker] for ticker in prices
         )
 
-        return round(dollar_amount / price)  # Assuming fractional shares are not allowed
+        # Filter long-only signals: only positive signals
+        positive_signals = {t: s for t, s in signals.items() if s > 0}
+        total_signal = sum(positive_signals.values())
+
+        # Determine target dollar allocation per ticker
+        target_dollars: Dict[str, float] = {}
+        if total_signal > 0:
+            for ticker, sig in positive_signals.items():
+                # fractional weight = (signal / total_signal) * max_position_fraction
+                weight = (sig / total_signal) * max_position_fraction
+                target_dollars[ticker] = weight * equity
+        # else: no long positions if no positive signals
+
+        # Compute target shares and orders
+        orders: Dict[str, float] = {}
+
+        # Sell positions for assets not in target or with zero target
+        for ticker, current_shares in positions.items():
+            if target_dollars.get(ticker, 0) == 0 and current_shares > 0:
+                # sell entire position
+                orders[ticker] = -current_shares
+
+        # Buy or adjust existing positions
+        for ticker, dollar_amt in target_dollars.items():
+            price = prices[ticker]
+            target_shares = dollar_amt / price
+            current_shares = positions.get(ticker, 0)
+            orders[ticker] = target_shares - current_shares
+
+        return orders

@@ -4,11 +4,11 @@ from typing import (
     Mapping,
 )
 
-from .atomic_types import Position, Order
-from ._sizing import SizingModel, FixedFractionalSizing
-from ._frequency_control import ThresholdDecayController
-from ._portfolio import Portfolio, OrderGenerator
-from ._portfolio_metrics import PerformanceTracker
+from portfolio_management.atomic_types import Position, Order
+from portfolio_management._sizing import SizingModel, FractionalSizing
+from portfolio_management._frequency_control import ThresholdDecayController
+from portfolio_management._portfolio import Portfolio, OrderGenerator
+from portfolio_management._portfolio_metrics import PerformanceTracker
 
 # ========================
 # PORTFOLIO MANAGER (FACADE)
@@ -24,10 +24,10 @@ class PortfolioManager:
         initial_capital: float = 0.0,
         initial_positions: Dict[str, Position] = {},
         initial_time: pd.Timestamp = pd.Timestamp("2000-01-01T12:00:00+00:00"),
-        max_position_size: float = float("inf"),
+        max_position_fraction: float = 1.0,
         commission: float = 0.0,
         slippage: float = 0.0,
-        sizing_model: SizingModel = FixedFractionalSizing(fraction=0.9),
+        sizing_model: SizingModel = FractionalSizing(),
         trades_per_period: int = 1,
         period_length_days: int = 5,
         tau_max: float = 1.0,
@@ -38,7 +38,7 @@ class PortfolioManager:
 
         Args:
             initial_capital: Initial cash amount.
-            max_position_size: Maximum allowed position size in dollars.
+            max_position_fraction: Maximum allowed position size in dollars.
             commission: Fixed commission per trade.
             slippage: Slippage as a fraction of trade value.
             sizing_fraction: Fraction of capital to use in position sizing.
@@ -48,7 +48,6 @@ class PortfolioManager:
             tau_min: Minimum threshold after full decay.
             decay: Type of decay, either 'linear' or 'exponential'.
         """
-        # Create components
         self.frequency_controller = ThresholdDecayController(
             trades_per_period=trades_per_period,
             period_length_days=period_length_days,
@@ -61,10 +60,9 @@ class PortfolioManager:
             frequency_controller=self.frequency_controller,
             commission=commission,
             slippage=slippage,
-            max_position_size=max_position_size,
+            max_position_fraction=max_position_fraction,
         )
 
-        # Create core components
         self.portfolio = Portfolio(
             initial_capital=initial_capital,
             initial_positions=initial_positions,
@@ -143,89 +141,3 @@ class PortfolioManager:
         }
 
 
-
-# ========================
-# USAGE EXAMPLE
-# ========================
-
-
-def create_portfolio(
-    initial_capital: float = 10000.0,
-    max_position_size: float = float("inf"),
-    commission: float = 0.0,
-    slippage: float = 0.0,
-    sizing_model: SizingModel = FixedFractionalSizing(fraction=0.9),
-    trades_per_period: int = 1,
-    period_length_days: int = 5,
-    decay: str = "linear",
-    tau_max: float = 1.0,
-    tau_min: float = 0.1,
-) -> PortfolioManager:
-    """
-    Factory function to create a portfolio manager with the specified parameters.
-
-    Args:
-        initial_capital: Initial cash amount.
-        max_position_size: Maximum allowed position size in dollars.
-        commission: Fixed commission per trade.
-        slippage: Slippage as a fraction of trade value.
-        sizing_fraction: Fraction of capital to use in position sizing.
-        trades_per_period: Desired trades per period.
-        period_length_days: Period length in trading days.
-        decay: Type of decay, either 'linear' or 'exponential'.
-        tau_max: Maximum threshold immediately after a trade.
-        tau_min: Minimum threshold after full decay.
-
-    Returns:
-        Configured PortfolioManager instance.
-    """
-    return PortfolioManager(
-        initial_capital=initial_capital,
-        max_position_size=max_position_size,
-        commission=commission,
-        slippage=slippage,
-        sizing_model=sizing_model,
-        trades_per_period=trades_per_period,
-        period_length_days=period_length_days,
-        tau_max=tau_max,
-        tau_min=tau_min,
-    )
-
-
-# Example usage:
-if __name__ == "__main__":
-    # Create a portfolio
-    portfolio = create_portfolio(
-        initial_capital=100000,
-        max_position_size=10000,
-        commission=5.0,
-        slippage=0.001,
-        sizing_model=FixedFractionalSizing(fraction=0.9),
-        trades_per_period=2,
-        period_length_days=5,
-        decay="linear",
-    )
-
-    manager = PortfolioManager()
-
-    # Sample data
-    timestamp = pd.Timestamp("2023-01-01", tz="UTC")
-    signals = {"AAPL": 0.8, "MSFT": -0.5, "GOOGL": 0.2}
-    prices = {"AAPL": 150.0, "MSFT": 250.0, "GOOGL": 2000.0}
-
-    # Process signals
-    orders = portfolio.process_signals(signals, prices, timestamp)
-
-    # Advance time and process more signals
-    timestamp = pd.Timestamp("2023-01-02", tz="UTC")
-    signals = {"AAPL": 0.3, "MSFT": 0.1, "GOOGL": -0.7}
-    prices = {"AAPL": 155.0, "MSFT": 245.0, "GOOGL": 1950.0}
-
-    orders = portfolio.process_signals(signals, prices, timestamp)
-
-    # Get results
-    results = portfolio.get_results()
-    print(f"Final cash: {results['final_cash']}")
-    print(f"Cumulative return: {results['cumulative_return']:.2%}")
-    print(f"Sharpe ratio: {results['sharpe_ratio']:.2f}")
-    print(f"Max drawdown: {results['max_drawdown']:.2%}")

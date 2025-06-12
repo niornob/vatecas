@@ -2,12 +2,12 @@ default:
   capital: 25000
   commission: 0.0
   initial_time: '2020-01-01T12:00:00+00:00'
-  max_position_size: '1e20'
+  max_position_fraction: 1.0
   positions: {
   }
   sizing_model:
     fraction: 1
-    type: FixedFractionalSizing
+    type: FractionalSizing
   slippage: 0.0
   trades_per_period: 2
   period_length_days: 5
@@ -19,7 +19,7 @@ custom0:
   capital: 770
   commission: 0.0
   initial_time: '2025-05-19T12:00:00+00:00'
-  max_position_size: 50000.0
+  max_position_fraction: 1.0
   positions: {
     SPY: 3.2,
     NVDA: 2,
@@ -27,7 +27,7 @@ custom0:
   }
   sizing_model:
     fraction: 1
-    type: FixedFractionalSizing
+    type: FractionalSizing
   slippage: 0.0
   trades_per_period: 2
   period_length_days: 5

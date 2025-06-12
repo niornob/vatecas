@@ -166,7 +166,7 @@ class BacktestEngine:
 
                 # Store signals for analysis
                 self._record_signals(signals, today)
-
+                
                 # Execute trades if we have valid opening prices
                 opening_prices = self._get_opening_prices(today)
                 if opening_prices:
@@ -228,8 +228,9 @@ class BacktestEngine:
             for ticker, signal in signals.items()
             if ticker in opening_prices
         }
-
+        
         if executable_signals:
+            # print(executable_signals, opening_prices, date)
             self.manager.process_signals(executable_signals, opening_prices, date)
 
             # Log execution details

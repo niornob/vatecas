@@ -6,12 +6,14 @@ vatecas/
 │   ├── backtesting
 │   │   ├── __init__.py
 │   │   └── backtester.py
-│   ├── investor
+│   ├── portfolio_management
 │   │   ├── __init__.py
 │   │   ├── _frequency_control.py
 │   │   ├── _portfolio.py
+│   │   ├── _portfolio2.py
 │   │   ├── _portfolio_metrics.py
 │   │   ├── _sizing.py
+│   │   ├── _sizing2.py
 │   │   ├── atomic_types.py
 │   │   ├── portfolio_manager.py
 │   │   ├── portfolio_registry.py
@@ -25,6 +27,7 @@ vatecas/
 │   │   ├── __init__.py
 │   │   └── recomender.py
 │   ├── signal_generator
+│   │   ├── .ipynb_checkpoints
 │   │   ├── regression
 │   │   │   ├── base
 │   │   │   │   ├── __init__.py
@@ -45,7 +48,8 @@ vatecas/
 │   │   ├── asset_grader.py
 │   │   ├── signal_diagnostics.py
 │   │   ├── signal_diagnostics_utils.py
-│   │   └── signal_module.py
+│   │   ├── signal_module.py
+│   │   └── signal_normalizer.py
 │   ├── utils
 │   │   ├── __init__.py
 │   │   ├── denoise.py
